@@ -123,6 +123,8 @@ static gboolean detect_monitor_idle(gpointer user_data) {
         fprintf(stderr, "workspace_buttons: Using configured monitor: %s\n", mod->monitor_name);
         fetch_initial_state(mod);
         update_button_states(mod);
+        // Start IPC monitoring thread now that monitor is known
+        pthread_create(&mod->ipc_thread, NULL, ipc_monitor_thread, mod);
         return G_SOURCE_REMOVE;
     }
 
@@ -151,6 +153,9 @@ static gboolean detect_monitor_idle(gpointer user_data) {
     // Now update state with correct monitor filtering
     fetch_initial_state(mod);
     update_button_states(mod);
+
+    // Start IPC monitoring thread now that monitor is known
+    pthread_create(&mod->ipc_thread, NULL, ipc_monitor_thread, mod);
 
     return G_SOURCE_REMOVE;
 }
@@ -312,14 +317,21 @@ static void refresh_workspace_monitors(WorkspaceModule* mod) {
 
 // Handle a single event from Hyprland socket (fast, no subprocess spawning)
 static void handle_event(WorkspaceModule* mod, const char* event) {
-    // workspace>>N - switched to workspace N on focused monitor
+    // Skip events until monitor is detected
+    if (mod->monitor_name[0] == '\0') {
+        return;
+    }
+
+    // workspace>>N - switched to workspace N (global event, no monitor context)
     if (strncmp(event, "workspace>>", 11) == 0) {
         int ws = atoi(event + 11);
         if (ws >= 1 && ws <= NUM_WORKSPACES) {
-            // Only update if this is our monitor
-            // The workspace event is for the focused monitor
-            mod->this_monitor_workspace = ws;
-            mod->user_focused_here = 1;
+            // Only update if this workspace is on THIS monitor
+            const char* ws_monitor = mod->workspace_monitor[ws - 1];
+            if (ws_monitor[0] != '\0' && strcmp(ws_monitor, mod->monitor_name) == 0) {
+                mod->this_monitor_workspace = ws;
+            }
+            // Don't set user_focused_here - let focusedmon>> handle that
         }
         return;
     }
@@ -651,12 +663,7 @@ void* wbcffi_init(const wbcffi_init_info* init_info, const wbcffi_config_entry* 
 
     gtk_widget_show_all(GTK_WIDGET(mod->container));
 
-    // Get initial state (monitor detection happens on realize)
-    fetch_initial_state(mod);
-    update_button_states(mod);
-
-    // Start IPC monitoring thread
-    pthread_create(&mod->ipc_thread, NULL, ipc_monitor_thread, mod);
+    // Note: IPC thread starts in detect_monitor_idle() after monitor is detected
 
     fprintf(stderr, "workspace_buttons: Initialized (tertiary=%s)\n", mod->tertiary_color);
     return mod;
