@@ -135,12 +135,19 @@ static gboolean detect_monitor_idle(gpointer user_data) {
     GtkAllocation alloc;
     gtk_widget_get_allocation(toplevel, &alloc);
 
-    // Match by width - query Hyprland layers to find which monitor has a waybar with this width
-    char cmd[256];
+    // Use a multi-step approach: get ALL waybar surfaces matching width, then use process-based heuristic
+    // Since both bars have same width, we differentiate by checking which one was initialized first
+    // The layer shell surfaces are created in monitor order, so index in the list tells us which monitor
+    char cmd[512];
+
+    // Get monitor name by matching surface index - if this is the Nth waybar initialization,
+    // match it to the Nth monitor sorted by position
+    static int init_count = 0;
     snprintf(cmd, sizeof(cmd),
-             "hyprctl layers -j | jq -r 'to_entries[] | .key as $mon | .value.levels | to_entries[] | .value[] | select(.namespace == \"waybar\" and .w == %d) | $mon' 2>/dev/null | head -1",
-             alloc.width);
+             "hyprctl monitors -j | jq -r 'sort_by(.x) | .[%d].name' 2>/dev/null",
+             init_count);
     popen_string(cmd, mod->monitor_name, sizeof(mod->monitor_name));
+    init_count++;
 
     // Fallback: get focused monitor if detection failed
     if (mod->monitor_name[0] == '\0') {
