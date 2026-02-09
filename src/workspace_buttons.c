@@ -131,23 +131,54 @@ static gboolean detect_monitor_idle(gpointer user_data) {
     GtkWidget* widget = GTK_WIDGET(mod->container);
     GtkWidget* toplevel = gtk_widget_get_toplevel(widget);
 
-    // Get the toplevel window's allocated width - this matches the waybar surface width
     GtkAllocation alloc;
     gtk_widget_get_allocation(toplevel, &alloc);
 
-    // Use a multi-step approach: get ALL waybar surfaces matching width, then use process-based heuristic
-    // Since both bars have same width, we differentiate by checking which one was initialized first
-    // The layer shell surfaces are created in monitor order, so index in the list tells us which monitor
-    char cmd[512];
+    // Sleep briefly to allow layer surface to be fully created
+    usleep(100000); // 100ms
 
-    // Get monitor name by matching surface index - if this is the Nth waybar initialization,
-    // match it to the Nth monitor sorted by position
-    static int init_count = 0;
+    // Get all waybar surfaces from layer shell and try to match by dimensions
+    // Then find which monitor each surface is on
+    char cmd[1024];
+
+    // For each waybar surface, get its monitor by checking X position
+    // If widths match and there are multiple surfaces, take the one that hasn't been claimed yet
+    static int claimed_x_positions[10] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+    static int claim_index = 0;
+
     snprintf(cmd, sizeof(cmd),
-             "hyprctl monitors -j | jq -r 'sort_by(.x) | .[%d].name' 2>/dev/null",
-             init_count);
-    popen_string(cmd, mod->monitor_name, sizeof(mod->monitor_name));
-    init_count++;
+             "hyprctl layers -j | jq -r '.[][] | .[] | .[] | select(.namespace == \"waybar\" and .w == %d) | .x' 2>/dev/null",
+             alloc.width);
+
+    char x_positions[256];
+    popen_string(cmd, x_positions, sizeof(x_positions));
+
+    // Parse X positions and find an unclaimed one
+    char* token = strtok(x_positions, "\n");
+    int selected_x = -1;
+    while (token != NULL) {
+        int x = atoi(token);
+        int already_claimed = 0;
+        for (int i = 0; i < claim_index; i++) {
+            if (claimed_x_positions[i] == x) {
+                already_claimed = 1;
+                break;
+            }
+        }
+        if (!already_claimed) {
+            selected_x = x;
+            claimed_x_positions[claim_index++] = x;
+            break;
+        }
+        token = strtok(NULL, "\n");
+    }
+
+    if (selected_x >= 0) {
+        snprintf(cmd, sizeof(cmd),
+                 "hyprctl monitors -j | jq -r '.[] | select(.x <= %d and (.x + .width) > %d) | .name' 2>/dev/null",
+                 selected_x, selected_x);
+        popen_string(cmd, mod->monitor_name, sizeof(mod->monitor_name));
+    }
 
     // Fallback: get focused monitor if detection failed
     if (mod->monitor_name[0] == '\0') {
