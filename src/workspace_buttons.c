@@ -47,6 +47,7 @@ typedef struct {
     // State
     int this_monitor_workspace;  // Workspace displayed on THIS module's monitor
     int user_focused_here;       // Is user focused on THIS monitor?
+    int detect_retries;          // Retry counter for monitor detection
     int workspace_windows[NUM_WORKSPACES];    // Window count per workspace
     int special_windows[NUM_WORKSPACES];      // Window count per special:N
     char workspace_monitor[NUM_WORKSPACES][64]; // Monitor name per workspace
@@ -134,9 +135,6 @@ static gboolean detect_monitor_idle(gpointer user_data) {
     GtkAllocation alloc;
     gtk_widget_get_allocation(toplevel, &alloc);
 
-    // Sleep briefly to allow layer surface to be fully created
-    usleep(100000); // 100ms
-
     // Get all waybar surfaces from layer shell and try to match by dimensions
     // Then find which monitor each surface is on
     char cmd[1024];
@@ -150,8 +148,32 @@ static gboolean detect_monitor_idle(gpointer user_data) {
              "hyprctl layers -j | jq -r '.[][] | .[] | .[] | select(.namespace == \"waybar\" and .w == %d) | .x' 2>/dev/null",
              alloc.width);
 
-    char x_positions[256];
-    popen_string(cmd, x_positions, sizeof(x_positions));
+    char x_positions[256] = {0};
+    FILE* xfp = popen(cmd, "r");
+    if (xfp) {
+        size_t total = 0;
+        char xline[32];
+        while (fgets(xline, sizeof(xline), xfp) != NULL && total < sizeof(x_positions) - 1) {
+            size_t l = strlen(xline);
+            if (total + l < sizeof(x_positions) - 1) {
+                memcpy(x_positions + total, xline, l);
+                total += l;
+            }
+        }
+        x_positions[total] = '\0';
+        pclose(xfp);
+    }
+
+    // If no layer surfaces found yet, retry up to 5 times with 400ms delay
+    if (x_positions[0] == '\0') {
+        if (mod->detect_retries < 5) {
+            mod->detect_retries++;
+            fprintf(stderr, "workspace_buttons: No layer surfaces found, retry %d/5\n", mod->detect_retries);
+            g_timeout_add(400, detect_monitor_idle, mod);
+            return G_SOURCE_REMOVE;
+        }
+        // Exhausted retries, fall through to focused-monitor fallback
+    }
 
     // Parse X positions and find an unclaimed one
     char* token = strtok(x_positions, "\n");
