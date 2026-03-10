@@ -60,6 +60,10 @@ typedef struct {
 
 const size_t wbcffi_version = 2;
 
+// Monitor detection claim state (file-scope so it can be reset on reload)
+static int claimed_x_positions[10];
+static int claim_index = 0;
+
 // Forward declarations
 static void update_button_states(WorkspaceModule* mod);
 static void* ipc_monitor_thread(void* arg);
@@ -138,11 +142,6 @@ static gboolean detect_monitor_idle(gpointer user_data) {
     // Get all waybar surfaces from layer shell and try to match by dimensions
     // Then find which monitor each surface is on
     char cmd[1024];
-
-    // For each waybar surface, get its monitor by checking X position
-    // If widths match and there are multiple surfaces, take the one that hasn't been claimed yet
-    static int claimed_x_positions[10] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
-    static int claim_index = 0;
 
     snprintf(cmd, sizeof(cmd),
              "hyprctl layers -j | jq -r '.[][] | .[] | .[] | select(.namespace == \"waybar\" and .w == %d) | .x' 2>/dev/null",
@@ -670,6 +669,10 @@ void* wbcffi_init(const wbcffi_init_info* init_info, const wbcffi_config_entry* 
 
     fprintf(stderr, "workspace_buttons: Config - all-outputs=%d, show-empty=%d\n",
             mod->all_outputs, mod->show_empty);
+
+    // Reset monitor claim state (needed for waybar reload - statics persist in .so)
+    memset(claimed_x_positions, 0, sizeof(claimed_x_positions));
+    claim_index = 0;
 
     // Load theme color
     load_tertiary_color(mod);
