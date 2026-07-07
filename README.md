@@ -117,7 +117,8 @@ The module listens for these events on the Hyprland IPC socket:
 - `activespecial>>...` - Special workspace toggle
 - `openwindow>>`, `closewindow>>`, `movewindow>>` - Window events
 - `createworkspace>>`, `destroyworkspace>>` - Workspace lifecycle
-- `moveworkspace>>` - Workspace moved to different monitor
+- `moveworkspace>>` - Workspace moved to different monitor; re-derives this
+  monitor's active workspace from `hyprctl monitors`
 
 ## License
 

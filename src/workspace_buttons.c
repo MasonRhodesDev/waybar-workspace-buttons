@@ -15,6 +15,7 @@
  */
 
 #include "waybar_cffi_module.h"
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -54,6 +55,7 @@ typedef struct {
 
     // Thread for IPC monitoring
     pthread_t ipc_thread;
+    int thread_started;
     volatile int running;
     int socket_fd;
 } WorkspaceModule;
@@ -74,6 +76,7 @@ static gboolean detect_monitor_idle(gpointer user_data);
 static void handle_event(WorkspaceModule* mod, const char* event);
 static void refresh_window_counts(WorkspaceModule* mod);
 static void refresh_workspace_monitors(WorkspaceModule* mod);
+static void refresh_active_workspace(WorkspaceModule* mod);
 
 // Helper to run command and get string output
 static void popen_string(const char* cmd, char* output, size_t output_size) {
@@ -119,9 +122,24 @@ static void load_tertiary_color(WorkspaceModule* mod) {
     }
 }
 
+// Start the IPC monitoring thread exactly once
+static void start_ipc_thread(WorkspaceModule* mod) {
+    if (mod->thread_started) return;
+    if (pthread_create(&mod->ipc_thread, NULL, ipc_monitor_thread, mod) == 0) {
+        mod->thread_started = 1;
+    } else {
+        fprintf(stderr, "workspace_buttons: Failed to start IPC thread\n");
+    }
+}
+
 // Detect which monitor this waybar instance is on (called from idle to ensure positioning is complete)
 static gboolean detect_monitor_idle(gpointer user_data) {
     WorkspaceModule* mod = (WorkspaceModule*)user_data;
+
+    // "map" can re-fire (bar hidden/shown); detection already completed once
+    if (mod->thread_started) {
+        return G_SOURCE_REMOVE;
+    }
 
     // If monitor was set from config, use that
     if (mod->monitor_name[0] != '\0') {
@@ -129,7 +147,7 @@ static gboolean detect_monitor_idle(gpointer user_data) {
         fetch_initial_state(mod);
         update_button_states(mod);
         // Start IPC monitoring thread now that monitor is known
-        pthread_create(&mod->ipc_thread, NULL, ipc_monitor_thread, mod);
+        start_ipc_thread(mod);
         return G_SOURCE_REMOVE;
     }
 
@@ -188,15 +206,20 @@ static gboolean detect_monitor_idle(gpointer user_data) {
         }
         if (!already_claimed) {
             selected_x = x;
-            claimed_x_positions[claim_index++] = x;
+            if (claim_index < (int)(sizeof(claimed_x_positions) / sizeof(claimed_x_positions[0]))) {
+                claimed_x_positions[claim_index++] = x;
+            }
             break;
         }
         token = strtok(NULL, "\n");
     }
 
     if (selected_x >= 0) {
+        // Layer x positions are in logical coordinates; monitor .width/.height
+        // are pre-transform physical pixels, so pick the horizontal extent by
+        // rotation (odd transform = 90/270 degrees) and divide by .scale
         snprintf(cmd, sizeof(cmd),
-                 "hyprctl monitors -j | jq -r '.[] | select(.x <= %d and (.x + .width) > %d) | .name' 2>/dev/null",
+                 "hyprctl monitors -j | jq -r '.[] | select(.x <= %d and (.x + ((if .transform %% 2 == 1 then .height else .width end) / .scale)) > %d) | .name' 2>/dev/null",
                  selected_x, selected_x);
         popen_string(cmd, mod->monitor_name, sizeof(mod->monitor_name));
     }
@@ -214,7 +237,7 @@ static gboolean detect_monitor_idle(gpointer user_data) {
     update_button_states(mod);
 
     // Start IPC monitoring thread now that monitor is known
-    pthread_create(&mod->ipc_thread, NULL, ipc_monitor_thread, mod);
+    start_ipc_thread(mod);
 
     return G_SOURCE_REMOVE;
 }
@@ -225,23 +248,38 @@ static void on_widget_map(GtkWidget* widget, gpointer user_data) {
     g_idle_add(detect_monitor_idle, user_data);
 }
 
+// Re-derive THIS monitor's active workspace and focus state from hyprctl.
+// Single query so both fields come from one consistent snapshot; on failure
+// (empty output, e.g. transient hyprctl error or monitor gone) keep current
+// state rather than clobbering it.
+static void refresh_active_workspace(WorkspaceModule* mod) {
+    char cmd[256];
+
+    if (mod->monitor_name[0] == '\0') return;
+
+    snprintf(cmd, sizeof(cmd),
+             "hyprctl monitors -j | jq -r '.[] | select(.name == \"%s\") | \"\\(.activeWorkspace.id) \\(.focused)\"' 2>/dev/null",
+             mod->monitor_name);
+    char line[64];
+    popen_string(cmd, line, sizeof(line));
+    if (line[0] == '\0') return;
+
+    int ws;
+    char focused[8];
+    if (sscanf(line, "%d %7s", &ws, focused) != 2) return;
+
+    // Negative IDs (named workspaces) are valid and clear the 1-9 highlight
+    mod->this_monitor_workspace = ws;
+    mod->user_focused_here = (strcmp(focused, "true") == 0);
+}
+
 // Parse workspace state from hyprctl using jq
 static void fetch_initial_state(WorkspaceModule* mod) {
     char cmd[256];
 
     // Get THIS monitor's active workspace and focus state
     if (mod->monitor_name[0] != '\0') {
-        snprintf(cmd, sizeof(cmd),
-                 "hyprctl monitors -j | jq -r '.[] | select(.name == \"%s\") | .activeWorkspace.id' 2>/dev/null",
-                 mod->monitor_name);
-        mod->this_monitor_workspace = popen_int(cmd);
-
-        snprintf(cmd, sizeof(cmd),
-                 "hyprctl monitors -j | jq -r '.[] | select(.name == \"%s\") | .focused' 2>/dev/null",
-                 mod->monitor_name);
-        char focused[8];
-        popen_string(cmd, focused, sizeof(focused));
-        mod->user_focused_here = (strcmp(focused, "true") == 0);
+        refresh_active_workspace(mod);
     } else {
         // Fallback if monitor not yet detected
         mod->this_monitor_workspace = popen_int("hyprctl activeworkspace -j | jq -r '.id' 2>/dev/null");
@@ -409,17 +447,11 @@ static void handle_event(WorkspaceModule* mod, const char* event) {
                 ws = atoi(comma + 1);
 
                 // Update focus state for this module
-                int was_focused = mod->user_focused_here;
                 mod->user_focused_here = (strcmp(mon, mod->monitor_name) == 0);
 
                 // If focus moved TO this monitor, update active workspace
                 if (mod->user_focused_here && ws >= 1 && ws <= NUM_WORKSPACES) {
                     mod->this_monitor_workspace = ws;
-                }
-
-                // If focus state changed, need to update UI
-                if (was_focused != mod->user_focused_here) {
-                    return; // Will trigger UI update
                 }
             }
         }
@@ -448,9 +480,13 @@ static void handle_event(WorkspaceModule* mod, const char* event) {
         return;
     }
 
-    // Monitor workspace move - refresh assignments
+    // Workspace moved to another monitor - refresh assignments AND this
+    // monitor's active workspace. A moved workspace becomes active on its
+    // destination (and the source falls back to another workspace) without
+    // emitting workspace>>/focusedmon>>, so re-derive from hyprctl here.
     if (strncmp(event, "moveworkspace>>", 15) == 0) {
         refresh_workspace_monitors(mod);
+        refresh_active_workspace(mod);
         return;
     }
 }
@@ -573,36 +609,59 @@ static int connect_hyprland_socket(void) {
 // IPC monitoring thread
 static void* ipc_monitor_thread(void* arg) {
     WorkspaceModule* mod = (WorkspaceModule*)arg;
-    char buffer[2048];
+    char buffer[4096];
+    size_t pending = 0;   // Bytes of a partial line carried over from the last read
+    int discarding = 0;   // Skipping the remainder of an overlong dropped line
 
     mod->socket_fd = connect_hyprland_socket();
     if (mod->socket_fd < 0) {
         fprintf(stderr, "workspace_buttons: Failed to connect to Hyprland socket\n");
         return NULL;
     }
+    // Deinit may have run while we were connecting; don't block in read()
+    if (!mod->running) {
+        close(mod->socket_fd);
+        return NULL;
+    }
 
     while (mod->running) {
-        ssize_t bytes = read(mod->socket_fd, buffer, sizeof(buffer) - 1);
+        ssize_t bytes = read(mod->socket_fd, buffer + pending, sizeof(buffer) - pending - 1);
         if (bytes <= 0) {
             if (mod->running) {
                 // Try to reconnect
                 close(mod->socket_fd);
                 sleep(1);
                 mod->socket_fd = connect_hyprland_socket();
+                pending = 0;
+                discarding = 0;
             }
             continue;
         }
 
-        buffer[bytes] = '\0';
+        pending += (size_t)bytes;
+        buffer[pending] = '\0';
 
-        // Parse individual events (newline-separated)
+        // Parse complete events only (newline-terminated); a read() can split
+        // an event across buffers, so carry any trailing partial line over.
         // Fast path: parse events directly without spawning processes
         char* line = buffer;
         char* next;
         int needs_update = 0;
 
-        while ((next = strchr(line, '\n')) != NULL || *line) {
-            if (next) *next = '\0';
+        // Skip the remainder of a previously dropped overlong line - its tail
+        // must not be parsed as if it started a fresh event
+        if (discarding) {
+            next = strchr(line, '\n');
+            if (!next) {
+                pending = 0;
+                continue;
+            }
+            line = next + 1;
+            discarding = 0;
+        }
+
+        while ((next = strchr(line, '\n')) != NULL) {
+            *next = '\0';
 
             // Skip empty lines
             if (*line) {
@@ -611,8 +670,17 @@ static void* ipc_monitor_thread(void* arg) {
                 needs_update = 1;
             }
 
-            if (!next) break;
             line = next + 1;
+        }
+
+        // Carry the partial line (if any) to the front of the buffer
+        pending = strlen(line);
+        if (pending >= sizeof(buffer) - 1) {
+            // Line longer than the buffer - drop it and skip its remainder
+            pending = 0;
+            discarding = 1;
+        } else if (pending > 0 && line != buffer) {
+            memmove(buffer, line, pending);
         }
 
         // Queue single UI update for all events in this batch
@@ -664,6 +732,15 @@ void* wbcffi_init(const wbcffi_init_info* init_info, const wbcffi_config_entry* 
             if (len > 0 && mod->monitor_name[len-1] == '"') {
                 mod->monitor_name[len-1] = '\0';
             }
+            // The name is spliced into shell commands - keep only characters
+            // valid in connector names
+            char* w = mod->monitor_name;
+            for (const char* r = mod->monitor_name; *r; r++) {
+                if (isalnum((unsigned char)*r) || *r == '-' || *r == '_') {
+                    *w++ = *r;
+                }
+            }
+            *w = '\0';
         }
     }
 
@@ -739,7 +816,12 @@ void wbcffi_deinit(void* instance) {
     if (mod->socket_fd > 0) {
         shutdown(mod->socket_fd, SHUT_RDWR);
     }
-    pthread_join(mod->ipc_thread, NULL);
+    if (mod->thread_started) {
+        pthread_join(mod->ipc_thread, NULL);
+    }
+
+    // Drop any pending idle/timeout sources that still reference mod
+    while (g_source_remove_by_user_data(mod)) { }
 
     free(mod);
     fprintf(stderr, "workspace_buttons: Deinitialized\n");
