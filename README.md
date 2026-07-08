@@ -4,6 +4,8 @@ A fast, event-driven CFFI module for [Waybar](https://github.com/Alexays/Waybar)
 
 ## Features
 
+![The module live in Waybar: workspace 1 in the normal state, workspace 2 active with an underline, workspace 5 with the special-workspace dot indicator; empty workspaces hidden; clock and battery on the same bar](.github/screenshots/bar.png)
+
 - **Per-monitor workspace filtering** - Each bar shows only its monitor's workspaces
 - **Active workspace highlighting** - Different styles for focused vs unfocused monitors
 - **Special workspace indicators** - Dot overlay shows workspaces with windows in `special:N`
@@ -18,6 +20,32 @@ The built-in Waybar Hyprland module spawns multiple subprocesses on every worksp
 - Parses events in-process without spawning shells
 - Only queries `hyprctl` when window counts change
 - Results in near-instant UI updates with minimal CPU overhead
+
+## Architecture
+
+```mermaid
+flowchart TD
+    HYPR["Hyprland"]
+
+    subgraph MOD ["workspace_buttons.so — one instance per bar, loaded via Waybar CFFI (wbcffi v2)"]
+        IPC["ipc_monitor_thread (pthread)"]
+        EVT["handle_event: workspace / focusedmon / activespecial / openwindow / closewindow / moveworkspace"]
+        LOOP["GTK main loop"]
+        UPD["update_button_states"]
+        DETECT["monitor auto-detect: match this bar's layer-surface x-position"]
+        BTN["workspace buttons"]
+    end
+
+    HYPR -->|"event socket $XDG_RUNTIME_DIR/hypr/(sig)/.socket2.sock"| IPC
+    IPC --> EVT
+    EVT -->|"g_idle_add — marshal to main loop"| LOOP
+    LOOP --> UPD
+    HYPR -->|"initial + refresh state: hyprctl -j piped to jq (monitors / workspaces / activeworkspace / clients)"| UPD
+    HYPR -->|"hyprctl layers -j + monitors -j"| DETECT
+    DETECT --> UPD
+    UPD -->|"CSS classes: active / visible / empty / has-special"| BTN
+    BTN -->|"click: hyprctl dispatch workspace N"| HYPR
+```
 
 ## Building
 
