@@ -1,0 +1,13 @@
+[repository]
+name = "waybar-workspace-buttons"
+authors = ["MasonRhodesDev"]
+commit_pins = []
+
+[workspace-zones]
+description = "Per-workspace special zones: workspace N owns special:N, auto-dismissed on leave"
+authors = ["MasonRhodesDev"]
+output = "plugin/build/libworkspace-zones.so"
+build = [
+    "meson setup plugin/build plugin --wipe",
+    "meson compile -C plugin/build",
+]
