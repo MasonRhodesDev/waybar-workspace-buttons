@@ -11,7 +11,9 @@
 #include <hyprland/src/desktop/state/FocusState.hpp>
 #include <hyprland/src/event/EventBus.hpp>
 #include <hyprland/src/helpers/Color.hpp>
-#include <hyprland/src/helpers/Monitor.hpp>
+#include <hyprland/src/output/Monitor.hpp>
+#include <hyprland/src/state/MonitorState.hpp>
+#include <hyprland/src/state/MonitorQuery.hpp>
 #include <hyprland/src/managers/KeybindManager.hpp>
 #include <hyprland/src/managers/eventLoop/EventLoopManager.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
@@ -118,7 +120,7 @@ namespace {
         const auto ZONE  = *OWNER;
         const auto MONID = MON->m_id;
         g_pEventLoopManager->doLater([ZONE, MONID] {
-            const auto MON = g_pCompositor->getMonitorFromID(MONID);
+            const auto MON = State::monitorState()->query().id(MONID).run();
             if (!MON || !MON->m_activeSpecialWorkspace)
                 return;
             if (zoneOwner(MON->m_activeSpecialWorkspace->m_name) != ZONE)
