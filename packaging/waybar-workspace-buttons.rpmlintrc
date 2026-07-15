@@ -1,0 +1,9 @@
+# rpmlint filters for waybar-workspace-buttons. Lets CI gate on rpmlint
+# without tripping over domain vocabulary.
+
+# Domain terms rpmlint's dictionary doesn't know (Waybar, CFFI, Hyprland,
+# compositor vocabulary). Not real defects.
+addFilter("spelling-error")
+
+# The module has no test suite; nothing for a %check section to run.
+addFilter("no-%check-section")

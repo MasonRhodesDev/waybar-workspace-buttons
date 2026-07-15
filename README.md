@@ -72,6 +72,19 @@ land in the repo automatically — update with `pacman -Syu` like any other
 package. You can also build the same package yourself from
 `packaging/PKGBUILD` with `makepkg`.
 
+### Fedora (COPR)
+
+```bash
+sudo dnf copr enable solaris765/waybar-workspace-buttons
+sudo dnf install waybar-workspace-buttons
+```
+
+The module installs to `/usr/lib64/waybar/workspace_buttons.so` (note
+`lib64`). Releases are submitted with `packaging/build-srpm.sh --copr` from
+the release tag. The workspace-zones Hyprland plugin is **not** in the RPM —
+it is ABI-locked to the exact Hyprland build it runs on, so install it
+through hyprpm (below), which rebuilds it against your compositor.
+
 ### From source
 
 Requires: `meson`, `ninja`, `gtk3-devel`, `json-glib-devel`
@@ -179,6 +192,16 @@ Bind the dispatchers — your plain `workspace, N` binds stay as they are:
 bind = $mainMod ALT, S, zones:toggle            # toggle this workspace's zone
 bind = $mainMod SHIFT ALT, S, zones:move        # send focused window to the zone and follow
 bind = $mainMod CTRL ALT, S, zones:movesilent   # stash focused window without following
+```
+
+With the Lua config (`hyprland.lua`, Hyprland 0.55+), classic string
+dispatchers aren't reachable from `hl.bind`/`hl.dispatch`, so the plugin also
+registers first-party functions under `hl.plugin.zones`:
+
+```lua
+hl.bind("SUPER + ALT + S",         function() hl.plugin.zones.toggle() end)
+hl.bind("SUPER + ALT + SHIFT + S", function() hl.plugin.zones.move() end)
+hl.bind("SUPER + CTRL + ALT + S",  function() hl.plugin.zones.movesilent() end)
 ```
 
 Leaving a workspace closes its zone automatically, no matter how the switch
