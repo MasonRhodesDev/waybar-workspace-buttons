@@ -7,6 +7,7 @@
 
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/SharedDefs.hpp>
+#include <hyprland/src/debug/log/Logger.hpp>
 #include <hyprland/src/desktop/Workspace.hpp>
 #include <hyprland/src/desktop/state/FocusState.hpp>
 #include <hyprland/src/event/EventBus.hpp>
@@ -102,6 +103,32 @@ namespace {
         return runDispatcher("movetoworkspacesilent", "special:" + std::to_string(*WSID));
     }
 
+    // First-party Lua config functions: hl.plugin.zones.{toggle,move,movesilent}().
+    // The Lua config can't reach classic string dispatchers (hl.dispatch only
+    // accepts hl.dsp.* objects, and `hyprctl dispatch <arg>` evaluates <arg> as a
+    // Lua expression), so expose the same actions as callables a hyprland.lua
+    // keybind can invoke directly:
+    //   hl.bind("SUPER + ALT + S", function() hl.plugin.zones.toggle() end)
+    // No arguments, no return values — the Lua stack is never touched, so the
+    // forward-declared lua_State suffices and no Lua headers are needed.
+    int luaZonesToggle(lua_State*) {
+        if (const auto R = zonesToggle(""); !R.success)
+            Log::logger->log(Log::DEBUG, "[workspace-zones] zones.toggle: {}", R.error);
+        return 0;
+    }
+
+    int luaZonesMove(lua_State*) {
+        if (const auto R = zonesMove(""); !R.success)
+            Log::logger->log(Log::DEBUG, "[workspace-zones] zones.move: {}", R.error);
+        return 0;
+    }
+
+    int luaZonesMoveSilent(lua_State*) {
+        if (const auto R = zonesMoveSilent(""); !R.success)
+            Log::logger->log(Log::DEBUG, "[workspace-zones] zones.movesilent: {}", R.error);
+        return 0;
+    }
+
     void onWorkspaceActive(PHLWORKSPACE ws) {
         if (!ws || !autoDismissEnabled())
             return;
@@ -152,6 +179,14 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     HyprlandAPI::addDispatcherV2(PHANDLE, "zones:toggle", zonesToggle);
     HyprlandAPI::addDispatcherV2(PHANDLE, "zones:move", zonesMove);
     HyprlandAPI::addDispatcherV2(PHANDLE, "zones:movesilent", zonesMoveSilent);
+
+    // Lua config only — returns false (harmless) under the legacy hyprlang
+    // config, where the zones:* dispatchers above remain the entry points.
+    // Reload-safe: the config manager re-registers these into every rebuilt
+    // Lua state, and unregisters them automatically on plugin unload.
+    HyprlandAPI::addLuaFunction(PHANDLE, "zones", "toggle", luaZonesToggle);
+    HyprlandAPI::addLuaFunction(PHANDLE, "zones", "move", luaZonesMove);
+    HyprlandAPI::addLuaFunction(PHANDLE, "zones", "movesilent", luaZonesMoveSilent);
 
     g_activeListener = Event::bus()->m_events.workspace.active.listen(onWorkspaceActive);
 
