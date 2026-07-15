@@ -206,27 +206,17 @@ hl.bind("SUPER + CTRL + ALT + S",  function() hl.plugin.zones.movesilent() end)
 
 Leaving a workspace closes its zone automatically, no matter how the switch
 happened — keybind, bar click, `hyprctl` — so a zone never lingers over an
-unrelated workspace. Named specials (`special:magic`, ...) are never touched
-by default. To keep zones open across switches instead:
+unrelated workspace. Named specials (`special:magic`, ...) are never touched.
+To keep zones open across switches instead:
 
 ```ini
 plugin:workspace-zones:auto_dismiss = 0
 ```
 
-Named specials can opt in to the same treatment: switching workspaces on the
-monitor a named special is open on dismisses it (a special on another monitor
-is left alone). Enable with:
-
-```ini
-plugin:workspace-zones:dismiss_named = 1
-```
-
-or, from the Lua config (where `plugin:*` values aren't resolvable), call the
-plugin's function after loading it:
-
-```lua
-hl.plugin.zones.dismiss_named_on()   -- and dismiss_named_off() to revert
-```
+To dismiss *named* specials on workspace switches too, no plugin needed —
+Hyprland's own `binds:hide_special_on_workspace_change = true` does it, scoped
+to the target workspace's monitor (a special open on another monitor stays),
+and it also covers switching to the workspace already underneath the special.
 
 ## Hyprland Events Handled
 

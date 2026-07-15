@@ -34,14 +34,7 @@ namespace {
     HANDLE                PHANDLE = nullptr;
     CHyprSignalListener   g_activeListener;
 
-    constexpr const char* K_AUTO_DISMISS  = "plugin:workspace-zones:auto_dismiss";
-    constexpr const char* K_DISMISS_NAMED = "plugin:workspace-zones:dismiss_named";
-
-    // Opt-in: dismiss NAMED specials (special:magic, ...) on a same-monitor
-    // workspace switch, like zones. Settable two ways: the V1 config value
-    // (hyprlang configs) or hl.plugin.zones.dismiss_named_on/off() (the Lua
-    // config, where V1 values are unresolvable).
-    bool                  g_dismissNamed = false;
+    constexpr const char* K_AUTO_DISMISS = "plugin:workspace-zones:auto_dismiss";
 
     // The V2 config API (addConfigValueV2) RASSERTs inside commence() on
     // Hyprland <= 0.54: getConfigValue() doesn't resolve the "plugin" special
@@ -56,17 +49,6 @@ namespace {
         }();
 #pragma GCC diagnostic pop
         return !P || **P; // default on if the value can't be resolved (e.g. lua config)
-    }
-
-    bool dismissNamedEnabled() {
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-        static Hyprlang::INT* const* P = [] -> Hyprlang::INT* const* {
-            const auto* V = HyprlandAPI::getConfigValue(PHANDLE, K_DISMISS_NAMED);
-            return V ? (Hyprlang::INT* const*)V->getDataStaticPtr() : nullptr;
-        }();
-#pragma GCC diagnostic pop
-        return g_dismissNamed || (P && **P); // default OFF (opt-in)
     }
 
     // "special:7" -> 7. nullopt for named specials so they are left alone.
@@ -147,18 +129,6 @@ namespace {
         return 0;
     }
 
-    // Zero-arg on purpose (no Lua stack access needed): the Lua config can't
-    // set V1 plugin config values, so this is its switch for dismiss_named.
-    int luaDismissNamedOn(lua_State*) {
-        g_dismissNamed = true;
-        return 0;
-    }
-
-    int luaDismissNamedOff(lua_State*) {
-        g_dismissNamed = false;
-        return 0;
-    }
-
     void onWorkspaceActive(PHLWORKSPACE ws) {
         if (!ws)
             return;
@@ -167,19 +137,19 @@ namespace {
         const auto MON = ws->m_monitor.lock();
         if (!MON || !MON->m_activeSpecialWorkspace)
             return;
-        const auto NAME  = MON->m_activeSpecialWorkspace->m_name; // "special:7" / "special:magic"
+        // Zones only. Named specials (special:magic, ...) are never touched —
+        // for those, Hyprland's own binds:hide_special_on_workspace_change
+        // covers workspace-change dismissal (same-monitor scoped) natively.
+        const auto NAME  = MON->m_activeSpecialWorkspace->m_name; // "special:7"
         const auto OWNER = zoneOwner(NAME);
-        if (OWNER) {
-            if (*OWNER == ws->m_id) // arriving at the zone's owner keeps its zone
-                return;
-            if (!autoDismissEnabled())
-                return;
-        } else if (!dismissNamedEnabled()) // named specials: opt-in
+        if (!OWNER || *OWNER == ws->m_id) // named special, or arriving at the zone's owner
+            return;
+        if (!autoDismissEnabled())
             return;
 
-        // The monitor moved to a workspace that doesn't own the open special:
-        // dismiss it. The event fires for the monitor the new workspace is on,
-        // so a special open on a different monitor is never touched.
+        // The monitor moved off the zone's owner workspace: dismiss the zone.
+        // The event fires for the monitor the new workspace is on, so a zone
+        // open on a different monitor is never touched.
         // Deferred to the event loop — we're inside the workspace-change
         // event and must not re-enter workspace machinery from here.
         const auto MONID = MON->m_id;
@@ -212,7 +182,6 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     HyprlandAPI::addConfigValue(PHANDLE, K_AUTO_DISMISS, Hyprlang::INT{1});
-    HyprlandAPI::addConfigValue(PHANDLE, K_DISMISS_NAMED, Hyprlang::INT{0});
 #pragma GCC diagnostic pop
 
     HyprlandAPI::addDispatcherV2(PHANDLE, "zones:toggle", zonesToggle);
@@ -226,14 +195,12 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     HyprlandAPI::addLuaFunction(PHANDLE, "zones", "toggle", luaZonesToggle);
     HyprlandAPI::addLuaFunction(PHANDLE, "zones", "move", luaZonesMove);
     HyprlandAPI::addLuaFunction(PHANDLE, "zones", "movesilent", luaZonesMoveSilent);
-    HyprlandAPI::addLuaFunction(PHANDLE, "zones", "dismiss_named_on", luaDismissNamedOn);
-    HyprlandAPI::addLuaFunction(PHANDLE, "zones", "dismiss_named_off", luaDismissNamedOff);
 
     g_activeListener = Event::bus()->m_events.workspace.active.listen(onWorkspaceActive);
 
     HyprlandAPI::reloadConfig();
 
-    return {"workspace-zones", "Per-workspace special zones: workspace N owns special:N, auto-dismissed on leave", "Mason Rhodes", "0.2.0"};
+    return {"workspace-zones", "Per-workspace special zones: workspace N owns special:N, auto-dismissed on leave", "Mason Rhodes", "0.3.0"};
 }
 
 APICALL EXPORT void PLUGIN_EXIT() {
