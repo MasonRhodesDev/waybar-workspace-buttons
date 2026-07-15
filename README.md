@@ -11,7 +11,9 @@ A fast, event-driven CFFI module for [Waybar](https://github.com/Alexays/Waybar)
 - **Special workspace indicators** - Dot overlay shows workspaces with windows in `special:N`
 - **Empty workspace hiding** - Configurable to show/hide empty workspaces
 - **Event-driven updates** - Parses Hyprland IPC events directly for instant response
-- **Click to switch** - Click any button to switch to that workspace
+- **Click to switch** - Click any button to switch to that workspace (uses the
+  Lua dispatch form, so Hyprland 0.55+ with a Lua config (`hyprland.lua`) is
+  required for clicks to work)
 
 ## Why This Module?
 
@@ -44,10 +46,33 @@ flowchart TD
     HYPR -->|"hyprctl layers -j + monitors -j"| DETECT
     DETECT --> UPD
     UPD -->|"CSS classes: active / visible / empty / has-special"| BTN
-    BTN -->|"click: hyprctl dispatch workspace N"| HYPR
+    BTN -->|"click: hyprctl dispatch 'hl.dsp.focus({workspace = N})'"| HYPR
 ```
 
-## Building
+## Installation
+
+### Arch Linux (pacman)
+
+Prebuilt packages are published to the `[mason]` repo. Add to `/etc/pacman.conf`:
+
+```ini
+[mason]
+SigLevel = Optional TrustAll
+Server = https://masonrhodesdev.github.io/arch-repo/x86_64
+```
+
+Then:
+
+```bash
+sudo pacman -Syu waybar-workspace-buttons
+```
+
+The module installs to `/usr/lib/waybar/workspace_buttons.so`. New releases
+land in the repo automatically — update with `pacman -Syu` like any other
+package. You can also build the same package yourself from
+`packaging/PKGBUILD` with `makepkg`.
+
+### From source
 
 Requires: `meson`, `ninja`, `gtk3-devel`, `json-glib-devel`
 
@@ -56,14 +81,10 @@ meson setup build
 ninja -C build
 ```
 
-## Installation
-
-```bash
-./install.sh
-```
-
-Builds the module and installs it to `~/.config/waybar/cffi/workspace_buttons.so`.
-(Or copy `build/workspace_buttons.so` there yourself.)
+Then either `sudo meson install -C build` (installs to
+`/usr/lib/waybar/workspace_buttons.so`) or run `./install.sh`, which copies
+the module to `~/.config/waybar/cffi/workspace_buttons.so` for a per-user
+install.
 
 ## Configuration
 
@@ -74,12 +95,15 @@ Add to your Waybar config (`~/.config/waybar/config`):
     "modules-left": ["cffi/workspaces"],
 
     "cffi/workspaces": {
-        "module_path": "~/.config/waybar/cffi/workspace_buttons.so",
+        "module_path": "/usr/lib/waybar/workspace_buttons.so",
         "all-outputs": false,
         "show-empty": false
     }
 }
 ```
+
+(Point `module_path` at `~/.config/waybar/cffi/workspace_buttons.so` instead
+if you used `install.sh`.)
 
 ### Options
 
