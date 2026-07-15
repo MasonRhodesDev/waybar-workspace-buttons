@@ -1,0 +1,31 @@
+# Maintainer: Mason Rhodes <mrhodesdev@gmail.com>
+#
+# Built and released by the shared packaging-workflows CI on v* tags,
+# then served from the [mason] pacman repo (MasonRhodesDev/arch-repo).
+# Usable directly with makepkg from this directory after a release tag
+# is pushed.
+
+pkgname=waybar-workspace-buttons
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Waybar CFFI workspace-buttons module for Hyprland (per-monitor filtering, special workspace indicators)"
+arch=('x86_64')
+url="https://github.com/MasonRhodesDev/waybar-workspace-buttons"
+license=('MIT')
+depends=('gtk3' 'jq' 'hyprland' 'waybar')
+makedepends=('meson')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
+sha256sums=('SKIP') # pin on release: updpkgsums
+
+build() {
+  cd "$pkgname-$pkgver"
+  arch-meson build
+  meson compile -C build
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  meson install -C build --destdir "$pkgdir"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

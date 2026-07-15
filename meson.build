@@ -1,6 +1,6 @@
 project(
     'waybar_workspace_buttons', 'c',
-    version: '0.1.0',
+    version: '1.0.0',
     license: 'MIT',
     default_options: ['c_std=gnu11']
 )
@@ -13,5 +13,6 @@ shared_library('workspace_buttons',
     ],
     include_directories: include_directories('include'),
     name_prefix: '',
-    install: false
+    install: true,
+    install_dir: get_option('libdir') / 'waybar'
 )
