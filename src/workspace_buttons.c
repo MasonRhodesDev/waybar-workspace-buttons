@@ -569,7 +569,8 @@ static void update_button_states(WorkspaceModule* mod) {
 static void on_button_clicked(GtkButton* button, gpointer user_data) {
     int workspace = GPOINTER_TO_INT(user_data);
     char cmd[64];
-    snprintf(cmd, sizeof(cmd), "hyprctl dispatch workspace %d", workspace);
+    // Lua config (hyprland.lua): dispatch args are Lua expressions
+    snprintf(cmd, sizeof(cmd), "hyprctl dispatch 'hl.dsp.focus({workspace = %d})'", workspace);
     system(cmd);
 }
 
