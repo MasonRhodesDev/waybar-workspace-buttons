@@ -12,3 +12,7 @@ concurrency:
 jobs:
   arch:
     uses: MasonRhodesDev/packaging-workflows/.github/workflows/arch-package.yml@main
+  rpm:
+    uses: MasonRhodesDev/packaging-workflows/.github/workflows/rpm-check.yml@main
+    with:
+      spec-name: waybar-workspace-buttons
