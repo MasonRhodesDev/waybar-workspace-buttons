@@ -15,7 +15,7 @@ license=('MIT')
 depends=('gtk3' 'jq' 'hyprland' 'waybar')
 makedepends=('meson')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
-sha256sums=('SKIP') # pin on release: updpkgsums
+sha256sums=('8c69057519076290c5e0d1bb5580f533ced53f14a808ab41e2e08b69f5bde1ed')
 
 build() {
   cd "$pkgname-$pkgver"
