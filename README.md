@@ -172,7 +172,7 @@ Add to your Waybar CSS (`~/.config/waybar/style.css`):
 
 This module works with Hyprland's per-workspace special workspaces (`special:1` through `special:9`). When a workspace has windows in its corresponding special workspace, a colored dot indicator appears in the top-right corner of the button.
 
-The dot color is read from `~/.config/matugen/lmtt-colors.css` (the `@tertiary` color) or falls back to `#adc8f8`.
+The dot color comes from `lmtt tokens --key tertiary`, or `#adc8f8` if LMTT is unavailable.
 
 ### Per-workspace special zones (Hyprland plugin)
 
