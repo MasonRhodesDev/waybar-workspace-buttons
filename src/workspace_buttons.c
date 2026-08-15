@@ -111,15 +111,34 @@ static int popen_int(const char* cmd) {
 
 // Load tertiary color from matugen CSS
 static void load_tertiary_color(WorkspaceModule* mod) {
-    FILE* fp = popen("grep -oP '@define-color tertiary \\K#[0-9a-fA-F]+' ~/.config/matugen/lmtt-colors.css 2>/dev/null", "r");
-    if (fp) {
-        if (fscanf(fp, "%15s", mod->tertiary_color) != 1) {
-            strncpy(mod->tertiary_color, DEFAULT_TERTIARY_COLOR, sizeof(mod->tertiary_color));
-        }
-        pclose(fp);
+    strncpy(mod->tertiary_color, DEFAULT_TERTIARY_COLOR, sizeof(mod->tertiary_color));
+
+    const char* xdg = getenv("XDG_CONFIG_HOME");
+    const char* home = getenv("HOME");
+    char path[512];
+
+    if (xdg && xdg[0] != '\0') {
+        snprintf(path, sizeof(path), "%s/matugen/lmtt-colors.css", xdg);
+    } else if (home && home[0] != '\0') {
+        snprintf(path, sizeof(path), "%s/.config/matugen/lmtt-colors.css", home);
     } else {
-        strncpy(mod->tertiary_color, DEFAULT_TERTIARY_COLOR, sizeof(mod->tertiary_color));
+        return;
     }
+
+    FILE* fp = fopen(path, "r");
+    if (!fp) {
+        return;
+    }
+
+    char line[256];
+    char hex[15];
+    while (fgets(line, sizeof(line), fp)) {
+        if (sscanf(line, "@define-color tertiary #%14[0-9a-fA-F]", hex) == 1) {
+            snprintf(mod->tertiary_color, sizeof(mod->tertiary_color), "#%s", hex);
+            break;
+        }
+    }
+    fclose(fp);
 }
 
 // Start the IPC monitoring thread exactly once
