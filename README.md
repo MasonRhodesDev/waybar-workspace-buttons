@@ -214,6 +214,10 @@ To keep zones open across switches instead:
 plugin:workspace-zones:auto_dismiss = 0
 ```
 
+`man workspace-zones` is the full reference. hypr-DE's help window
+(`hypr-de-help`, SUPER+/) explains how zones differ from the named
+scratchpad.
+
 To dismiss *named* specials on workspace switches too, no plugin needed —
 Hyprland's own `binds:hide_special_on_workspace_change = true` does it, scoped
 to the target workspace's monitor (a special open on another monitor stays),

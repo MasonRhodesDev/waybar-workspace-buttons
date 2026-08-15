@@ -44,6 +44,7 @@ module_path to %{_libdir}/waybar/workspace_buttons.so.
 %doc README.md
 %dir %{_libdir}/waybar
 %{_libdir}/waybar/workspace_buttons.so
+%{_mandir}/man7/workspace-zones.7*
 
 %changelog
 * Wed Jul 15 2026 Mason Rhodes <mrhodesdev@gmail.com> - 1.0.1-1

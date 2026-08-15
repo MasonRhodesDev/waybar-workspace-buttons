@@ -16,3 +16,5 @@ shared_library('workspace_buttons',
     install: true,
     install_dir: get_option('libdir') / 'waybar'
 )
+
+install_man('man/workspace-zones.7')
