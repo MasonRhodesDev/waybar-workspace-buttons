@@ -117,9 +117,9 @@ static void load_tertiary_color(WorkspaceModule* mod) {
     const char* home = getenv("HOME");
     char path[512];
 
-    if (xdg && xdg[0] != '\0') {
+    if (xdg && xdg[0] == '/') {
         snprintf(path, sizeof(path), "%s/matugen/lmtt-colors.css", xdg);
-    } else if (home && home[0] != '\0') {
+    } else if (home && home[0] == '/') {
         snprintf(path, sizeof(path), "%s/.config/matugen/lmtt-colors.css", home);
     } else {
         return;
@@ -588,11 +588,15 @@ static void update_button_states(WorkspaceModule* mod) {
 // hyprland.lua over hyprland.conf whenever the file exists. Checked per
 // click (access() is cheap) so a dialect switch doesn't need a bar restart.
 static gboolean hyprland_lua_config_active(void) {
+    const char* xdg = getenv("XDG_CONFIG_HOME");
     const char* home = getenv("HOME");
     char path[512];
-    if (!home)
+    if (xdg && xdg[0] == '/')
+        snprintf(path, sizeof(path), "%s/hypr/hyprland.lua", xdg);
+    else if (home && home[0] == '/')
+        snprintf(path, sizeof(path), "%s/.config/hypr/hyprland.lua", home);
+    else
         return FALSE;
-    snprintf(path, sizeof(path), "%s/.config/hypr/hyprland.lua", home);
     return access(path, F_OK) == 0;
 }
 
@@ -615,7 +619,7 @@ static int connect_hyprland_socket(void) {
     const char* xdg_runtime = getenv("XDG_RUNTIME_DIR");
     const char* hypr_sig = getenv("HYPRLAND_INSTANCE_SIGNATURE");
 
-    if (!xdg_runtime || !hypr_sig) {
+    if (!xdg_runtime || xdg_runtime[0] != '/' || !hypr_sig) {
         fprintf(stderr, "workspace_buttons: Missing Hyprland environment variables\n");
         return -1;
     }
