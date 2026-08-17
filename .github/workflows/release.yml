@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   release:
-    uses: MasonRhodesDev/packaging-workflows/.github/workflows/release.yml@77a592545a6cf6b7cb1ddfc5ee07126037f4feb1
+    uses: MasonRhodesDev/packaging-workflows/.github/workflows/release.yml@a231338c970c58b345133223d3bd8df502331c95
     secrets: inherit
     with:
       spec-name: waybar-workspace-buttons

@@ -6,7 +6,7 @@
 # to the running compositor and goes through hyprpm there.
 
 pkgname=waybar-workspace-buttons
-pkgver=1.0.2
+pkgver=1.0.3
 pkgrel=1
 pkgdesc="Waybar CFFI workspace-buttons module for Hyprland (per-monitor filtering, special workspace indicators)"
 arch=('x86_64')
