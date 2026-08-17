@@ -14,22 +14,29 @@ Named specials such as
 .I special:magic
 are never touched.
 .PP
-The plugin lives in the waybar-workspace-buttons repository. It is
-.B not
-in the RPM or PKGBUILD: it is ABI-locked to the running Hyprland build and
-is installed through hyprpm. The packaged Waybar CFFI module only draws the
+The plugin lives in the waybar-workspace-buttons repository.
+On Arch the
+.B waybar-workspace-buttons
+package installs
+.I /usr/lib/hyprland/plugins/libworkspace-zones.so
+built against extra/hyprland. hyprland-git and Fedora still need
+.BR hyprpm ,
+because the plugin is ABI-locked to the running compositor.
+The packaged Waybar CFFI module only draws the
 has-special dot on workspace buttons; that dot is what these zones were
 built for.
 .SH INSTALLATION
 .nf
+# Arch extra/hyprland: already in the package.
+# hyprland-git or Fedora:
 hyprpm add https://github.com/MasonRhodesDev/waybar-workspace-buttons
 hyprpm enable workspace-zones
 .fi
 .PP
-hypr-DE loads
+hypr-DE loads a
 .I ~/.local/lib/hyprland-plugins/libworkspace-zones.so
-from main.lua inside a pcall so a missing plugin does not abort the rest of
-the config.
+override if present, otherwise the packaged path, inside a pcall so a
+missing plugin does not abort the rest of the config.
 .SH BINDINGS
 Classic string dispatchers:
 .PP

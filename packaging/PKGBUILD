@@ -1,19 +1,19 @@
 # Maintainer: Mason Rhodes <mrhodesdev@gmail.com>
 #
-# Built and released by the shared packaging-workflows CI on v* tags,
-# then served from the [mason] pacman repo (MasonRhodesDev/arch-repo).
-# Usable directly with makepkg from this directory after a release tag
-# is pushed.
+# Arch package: Waybar CFFI module plus the workspace-zones Hyprland plugin
+# built against extra/hyprland. hyprland-git users keep a ~/.local rebuild.
+# Fedora still ships CFFI only (see the spec) — that plugin is ABI-locked
+# to the running compositor and goes through hyprpm there.
 
 pkgname=waybar-workspace-buttons
-pkgver=1.0.1
+pkgver=1.0.2
 pkgrel=1
 pkgdesc="Waybar CFFI workspace-buttons module for Hyprland (per-monitor filtering, special workspace indicators)"
 arch=('x86_64')
 url="https://github.com/MasonRhodesDev/waybar-workspace-buttons"
 license=('MIT')
 depends=('gtk3' 'jq' 'hyprland' 'waybar')
-makedepends=('meson')
+makedepends=('meson' 'hyprland' 'pixman' 'libdrm')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
 sha256sums=('8c69057519076290c5e0d1bb5580f533ced53f14a808ab41e2e08b69f5bde1ed')
 
@@ -21,11 +21,14 @@ build() {
   cd "$pkgname-$pkgver"
   arch-meson build
   meson compile -C build
+  arch-meson plugin plugin/build
+  meson compile -C plugin/build
 }
 
 package() {
   cd "$pkgname-$pkgver"
   meson install -C build --destdir "$pkgdir"
+  meson install -C plugin/build --destdir "$pkgdir"
   install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
   install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
 }

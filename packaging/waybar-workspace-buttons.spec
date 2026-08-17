@@ -6,7 +6,7 @@
 # it runs on (runtime API-hash guard), so it cannot be usefully prebuilt as
 # an RPM — it is distributed via hyprpm (see hyprpm.toml) instead.
 Name:           waybar-workspace-buttons
-Version:        1.0.1
+Version:        1.0.2
 Release:        1%{?dist}
 Summary:        Waybar CFFI workspace-buttons module for Hyprland
 License:        MIT
@@ -47,6 +47,9 @@ module_path to %{_libdir}/waybar/workspace_buttons.so.
 %{_mandir}/man7/workspace-zones.7*
 
 %changelog
+* Sun Aug 16 2026 Mason Rhodes <mrhodesdev@gmail.com> - 1.0.2-1
+- Ship workspace-zones(7). Arch also ships the Hyprland plugin .so.
+
 * Wed Jul 15 2026 Mason Rhodes <mrhodesdev@gmail.com> - 1.0.1-1
 - Workspace click: detect the active Hyprland config dialect and emit the
   matching hyprctl dispatch syntax (Lua expression vs classic string)

@@ -68,9 +68,11 @@ Then:
 sudo pacman -Syu waybar-workspace-buttons
 ```
 
-The module installs to `/usr/lib/waybar/workspace_buttons.so`. New releases
-land in the repo automatically — update with `pacman -Syu` like any other
-package. You can also build the same package yourself from
+The module installs to `/usr/lib/waybar/workspace_buttons.so`. The Arch
+package also ships `workspace-zones(7)` and
+`/usr/lib/hyprland/plugins/libworkspace-zones.so` built against extra/hyprland.
+New releases land in the repo automatically — update with `pacman -Syu` like
+any other package. You can also build the same package yourself from
 `packaging/PKGBUILD` with `makepkg`.
 
 ### Fedora (COPR)
@@ -180,7 +182,8 @@ This repo also ships **workspace-zones**, a small Hyprland plugin that gives
 every numeric workspace its own scratch zone: workspace `N` owns `special:N`.
 It is the setup the `has-special` dot was built for.
 
-Install through hyprpm:
+On Arch extra/hyprland the plugin is in the package. hyprland-git and Fedora
+still need hyprpm, because the plugin is ABI-locked to the running compositor:
 
 ```sh
 hyprpm add https://github.com/MasonRhodesDev/waybar-workspace-buttons

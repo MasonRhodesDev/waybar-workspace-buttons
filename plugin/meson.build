@@ -22,4 +22,5 @@ shared_module(meson.project_name(), ['src/main.cpp'],
     dependency('libdrm'),
   ],
   install: true,
+  install_dir: get_option('libdir') / 'hyprland' / 'plugins',
 )
