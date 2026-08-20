@@ -190,17 +190,11 @@ hyprpm add https://github.com/MasonRhodesDev/waybar-workspace-buttons
 hyprpm enable workspace-zones
 ```
 
-Bind the dispatchers — your plain `workspace, N` binds stay as they are:
-
-```ini
-bind = $mainMod ALT, S, zones:toggle            # toggle this workspace's zone
-bind = $mainMod SHIFT ALT, S, zones:move        # send focused window to the zone and follow
-bind = $mainMod CTRL ALT, S, zones:movesilent   # stash focused window without following
-```
-
-With the Lua config (`hyprland.lua`, Hyprland 0.55+), classic string
-dispatchers aren't reachable from `hl.bind`/`hl.dispatch`, so the plugin also
-registers first-party functions under `hl.plugin.zones`:
+The plugin requires Hyprland **0.56+** with the **Lua config** (`hyprland.lua`)
+— the only supported configuration. Classic `zones:*` string dispatchers no
+longer exist: Hyprland's 0.56 keybinds refactor removed string dispatchers
+compositor-wide. Bind the first-party functions under `hl.plugin.zones` —
+your plain `hl.bind` workspace binds stay as they are:
 
 ```lua
 hl.bind("SUPER + ALT + S",         function() hl.plugin.zones.toggle() end)

@@ -17,7 +17,7 @@ add_global_arguments('-fno-gnu-unique', language: 'cpp')
 
 shared_module(meson.project_name(), ['src/main.cpp'],
   dependencies: [
-    dependency('hyprland'),
+    dependency('hyprland', version: '>=0.56.0'),
     dependency('pixman-1'),
     dependency('libdrm'),
   ],

@@ -1,4 +1,4 @@
-.TH WORKSPACE-ZONES 7 "2026-08-15" "waybar-workspace-buttons" "Hyprland"
+.TH WORKSPACE-ZONES 7 "2026-08-20" "waybar-workspace-buttons" "Hyprland"
 .SH NAME
 workspace-zones \- per-workspace scratch zones for Hyprland
 .SH DESCRIPTION
@@ -38,20 +38,13 @@ hypr-DE loads a
 override if present, otherwise the packaged path, inside a pcall so a
 missing plugin does not abort the rest of the config.
 .SH BINDINGS
-Classic string dispatchers:
-.PP
-.nf
-bind = $mainMod ALT, S, zones:toggle
-bind = $mainMod SHIFT ALT, S, zones:move
-bind = $mainMod CTRL ALT, S, zones:movesilent
-.fi
-.PP
-With Hyprland 0.55+ Lua config, classic string dispatchers are not reachable
-from
-.B hl.bind
-/
-.BR hl.dispatch ,
-so the plugin also registers first-party functions under
+The plugin requires Hyprland 0.56 or newer with the Lua config
+.RI ( hyprland.lua ),
+the only supported configuration. Classic
+.I zones:*
+string dispatchers no longer exist: Hyprland's 0.56 keybinds refactor removed
+string dispatchers compositor-wide. The plugin registers first-party
+functions under
 .BR hl.plugin.zones :
 .PP
 .nf
@@ -64,13 +57,13 @@ hypr-DE ships those Lua binds. Closures resolve at keypress time; if the
 plugin is missing, the press logs a Lua error instead of silently doing
 nothing.
 .TP
-.B zones:toggle
+.B hl.plugin.zones.toggle()
 Show or hide this workspace's zone.
 .TP
-.B zones:move
+.B hl.plugin.zones.move()
 Send the focused window to the zone and follow it.
 .TP
-.B zones:movesilent
+.B hl.plugin.zones.movesilent()
 Stash the focused window without following.
 .SH NAMED SCRATCHPAD
 The global scratchpad

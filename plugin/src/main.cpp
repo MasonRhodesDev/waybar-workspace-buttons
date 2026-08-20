@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cctype>
+#include <format>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -7,48 +8,46 @@
 
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/SharedDefs.hpp>
+#include <hyprland/src/config/shared/actions/ConfigActions.hpp>
+#include <hyprland/src/config/values/types/BoolValue.hpp>
 #include <hyprland/src/debug/log/Logger.hpp>
 #include <hyprland/src/desktop/Workspace.hpp>
 #include <hyprland/src/desktop/state/FocusState.hpp>
 #include <hyprland/src/event/EventBus.hpp>
 #include <hyprland/src/helpers/Color.hpp>
+#include <hyprland/src/helpers/MiscFunctions.hpp>
 #include <hyprland/src/output/Monitor.hpp>
 #include <hyprland/src/state/MonitorState.hpp>
 #include <hyprland/src/state/MonitorQuery.hpp>
-#include <hyprland/src/managers/KeybindManager.hpp>
+#include <hyprland/src/state/WorkspaceState.hpp>
 #include <hyprland/src/managers/eventLoop/EventLoopManager.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
 
 // workspace-zones: every numeric workspace N owns a scratch zone, special:N.
 //
-// Dispatchers:
-//   zones:toggle      toggle the focused workspace's zone
-//   zones:move        move the focused window to the zone (and follow)
-//   zones:movesilent  move the focused window to the zone without following
+// Lua config only (Hyprland 0.56+). Entry points, bound from hyprland.lua:
+//   hl.plugin.zones.toggle()      toggle the focused workspace's zone
+//   hl.plugin.zones.move()        move the focused window to the zone (and follow)
+//   hl.plugin.zones.movesilent()  move the focused window to the zone without following
+// The classic zones:* string dispatchers are gone: Hyprland's 0.56 keybinds
+// refactor removed the dispatcher registry (and stubbed the plugin API for
+// it), and we only support the Lua config anyway.
 //
 // Auto-dismiss: leaving a workspace closes its zone (any switch path — binds,
 // bar clicks, hyprctl), so zones never linger over an unrelated workspace.
 // Named specials (special:magic etc.) are never touched.
 
 namespace {
-    HANDLE                PHANDLE = nullptr;
-    CHyprSignalListener   g_activeListener;
+    HANDLE                            PHANDLE = nullptr;
+    CHyprSignalListener               g_activeListener;
+    SP<Config::Values::CBoolValue>    g_autoDismiss;
+
+    namespace CA = Config::Actions;
 
     constexpr const char* K_AUTO_DISMISS = "plugin:workspace-zones:auto_dismiss";
 
-    // The V2 config API (addConfigValueV2) RASSERTs inside commence() on
-    // Hyprland <= 0.54: getConfigValue() doesn't resolve the "plugin" special
-    // category. The deprecated V1 API routes correctly, so use it until the
-    // minimum supported Hyprland moves past that.
     bool autoDismissEnabled() {
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-        static Hyprlang::INT* const* P = [] -> Hyprlang::INT* const* {
-            const auto* V = HyprlandAPI::getConfigValue(PHANDLE, K_AUTO_DISMISS);
-            return V ? (Hyprlang::INT* const*)V->getDataStaticPtr() : nullptr;
-        }();
-#pragma GCC diagnostic pop
-        return !P || **P; // default on if the value can't be resolved (e.g. lua config)
+        return !g_autoDismiss || g_autoDismiss->value(); // default on if registration failed
     }
 
     // "special:7" -> 7. nullopt for named specials so they are left alone.
@@ -62,13 +61,29 @@ namespace {
         return std::stoll(std::string{TAIL});
     }
 
-    SDispatchResult runDispatcher(const std::string& name, const std::string& arg) {
-        if (!g_pKeybindManager)
-            return {.success = false, .error = "keybind manager unavailable"};
-        const auto IT = g_pKeybindManager->m_dispatchers.find(name);
-        if (IT == g_pKeybindManager->m_dispatchers.end())
-            return {.success = false, .error = "dispatcher not found: " + name};
-        return IT->second(arg);
+    // String dispatchers died with the 0.56 keybinds refactor (the registry is
+    // gone and HyprlandAPI::addDispatcherV2 is a stub); typed Config::Actions
+    // functions are the replacement. Bridge their std::expected result back to
+    // the SDispatchResult our entry points still report.
+    SDispatchResult toDispatchResult(const CA::ActionResult& r) {
+        if (r)
+            return {};
+        return {.success = false, .error = r.error().message};
+    }
+
+    // Resolve (creating if needed) workspace special:<owner> — same resolution
+    // path the built-in Lua dsp bindings use.
+    PHLWORKSPACE getOrCreateZone(WORKSPACEID owner) {
+        const auto& [WSID, WSNAME, ISAUTO] = getWorkspaceIDNameFromString(std::format("special:{}", owner));
+        if (WSID == WORKSPACE_INVALID || !State::workspaceState()->isSpecial(WSID))
+            return nullptr;
+        auto ws = State::workspaceState()->query().id(WSID).run();
+        if (!ws) {
+            const auto MON = Desktop::focusState()->monitor();
+            if (MON)
+                ws = State::workspaceState()->create(WSID, MON->m_id, WSNAME);
+        }
+        return ws;
     }
 
     std::optional<WORKSPACEID> focusedWorkspaceID() {
@@ -84,23 +99,32 @@ namespace {
         const auto WSID = focusedWorkspaceID();
         if (!WSID)
             return {.success = false, .error = "no numeric workspace focused"};
-        // togglespecialworkspace already closes-if-open and swaps away any
-        // other special, so it carries the full toggle semantics for us.
-        return runDispatcher("togglespecialworkspace", std::to_string(*WSID));
+        const auto ZONE = getOrCreateZone(*WSID);
+        if (!ZONE)
+            return {.success = false, .error = "could not resolve zone workspace"};
+        // toggleSpecial already closes-if-open and swaps away any other
+        // special, so it carries the full toggle semantics for us.
+        return toDispatchResult(CA::toggleSpecial(ZONE));
     }
 
     SDispatchResult zonesMove(std::string) {
         const auto WSID = focusedWorkspaceID();
         if (!WSID)
             return {.success = false, .error = "no numeric workspace focused"};
-        return runDispatcher("movetoworkspace", "special:" + std::to_string(*WSID));
+        const auto ZONE = getOrCreateZone(*WSID);
+        if (!ZONE)
+            return {.success = false, .error = "could not resolve zone workspace"};
+        return toDispatchResult(CA::moveToWorkspace(ZONE, false));
     }
 
     SDispatchResult zonesMoveSilent(std::string) {
         const auto WSID = focusedWorkspaceID();
         if (!WSID)
             return {.success = false, .error = "no numeric workspace focused"};
-        return runDispatcher("movetoworkspacesilent", "special:" + std::to_string(*WSID));
+        const auto ZONE = getOrCreateZone(*WSID);
+        if (!ZONE)
+            return {.success = false, .error = "could not resolve zone workspace"};
+        return toDispatchResult(CA::moveToWorkspace(ZONE, true));
     }
 
     // First-party Lua config functions: hl.plugin.zones.{toggle,move,movesilent}().
@@ -159,8 +183,8 @@ namespace {
                 return;
             if (MON->m_activeSpecialWorkspace->m_name != NAME)
                 return;
-            constexpr std::string_view PREFIX = "special:";
-            runDispatcher("togglespecialworkspace", NAME.substr(PREFIX.size()));
+            if (const auto R = CA::toggleSpecial(MON->m_activeSpecialWorkspace); !R)
+                Log::logger->log(Log::DEBUG, "[workspace-zones] auto-dismiss: {}", R.error().message);
         });
     }
 }
@@ -179,17 +203,10 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         throw std::runtime_error("[workspace-zones] version mismatch: running " + HASH + ", built against " + CLIENT_HASH);
     }
 
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    HyprlandAPI::addConfigValue(PHANDLE, K_AUTO_DISMISS, Hyprlang::INT{1});
-#pragma GCC diagnostic pop
+    g_autoDismiss = makeShared<Config::Values::CBoolValue>(K_AUTO_DISMISS, "Auto-dismiss a workspace's zone when leaving its owner workspace", true);
+    if (!HyprlandAPI::addConfigValueV2(PHANDLE, g_autoDismiss))
+        g_autoDismiss.reset(); // autoDismissEnabled() falls back to default-on
 
-    HyprlandAPI::addDispatcherV2(PHANDLE, "zones:toggle", zonesToggle);
-    HyprlandAPI::addDispatcherV2(PHANDLE, "zones:move", zonesMove);
-    HyprlandAPI::addDispatcherV2(PHANDLE, "zones:movesilent", zonesMoveSilent);
-
-    // Lua config only — returns false (harmless) under the legacy hyprlang
-    // config, where the zones:* dispatchers above remain the entry points.
     // Reload-safe: the config manager re-registers these into every rebuilt
     // Lua state, and unregisters them automatically on plugin unload.
     HyprlandAPI::addLuaFunction(PHANDLE, "zones", "toggle", luaZonesToggle);
@@ -205,4 +222,5 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
 
 APICALL EXPORT void PLUGIN_EXIT() {
     g_activeListener.reset();
+    g_autoDismiss.reset();
 }

@@ -6,14 +6,14 @@
 # to the running compositor and goes through hyprpm there.
 
 pkgname=waybar-workspace-buttons
-pkgver=1.0.3
+pkgver=1.1.0
 pkgrel=1
 pkgdesc="Waybar CFFI workspace-buttons module for Hyprland (per-monitor filtering, special workspace indicators)"
 arch=('x86_64')
 url="https://github.com/MasonRhodesDev/waybar-workspace-buttons"
 license=('MIT')
-depends=('gtk3' 'jq' 'hyprland' 'waybar')
-makedepends=('meson' 'hyprland' 'pixman' 'libdrm')
+depends=('gtk3' 'jq' 'hyprland>=0.56' 'waybar')
+makedepends=('meson' 'hyprland>=0.56' 'pixman' 'libdrm')
 source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
 sha256sums=('8c69057519076290c5e0d1bb5580f533ced53f14a808ab41e2e08b69f5bde1ed')
 
