@@ -113,7 +113,7 @@ static int popen_int(const char* cmd) {
 static void load_tertiary_color(WorkspaceModule* mod) {
     strncpy(mod->tertiary_color, DEFAULT_TERTIARY_COLOR, sizeof(mod->tertiary_color));
 
-    FILE* fp = popen("lmtt tokens --key tertiary", "r");
+    FILE* fp = popen("/usr/bin/lmtt tokens --key tertiary", "r");
     if (!fp) {
         return;
     }

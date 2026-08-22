@@ -6,7 +6,7 @@
 # it runs on (runtime API-hash guard), so it cannot be usefully prebuilt as
 # an RPM — it is distributed via hyprpm (see hyprpm.toml) instead.
 Name:           waybar-workspace-buttons
-Version:        1.1.0
+Version:        1.1.1
 Release:        1%{?dist}
 Summary:        Waybar CFFI workspace-buttons module for Hyprland
 License:        MIT
@@ -47,6 +47,11 @@ module_path to %{_libdir}/waybar/workspace_buttons.so.
 %{_mandir}/man7/workspace-zones.7*
 
 %changelog
+* Fri Aug 22 2026 Mason Rhodes <mrhodesdev@gmail.com> - 1.1.1-1
+- Call /usr/bin/lmtt by absolute path for the tertiary token: a stale
+  hand-built /usr/local/bin/lmtt shadowed the packaged binary and the
+  workspace dot silently fell back to the default color.
+
 * Thu Aug 20 2026 Mason Rhodes <mrhodesdev@gmail.com> - 1.1.0-1
 - workspace-zones: port to Hyprland 0.56 (typed Config::Actions replace the
   removed string-dispatcher registry; config value moves to the V2 API)
