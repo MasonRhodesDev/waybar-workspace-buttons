@@ -6,7 +6,7 @@
 # it runs on (runtime API-hash guard), so it cannot be usefully prebuilt as
 # an RPM — it is distributed via hyprpm (see hyprpm.toml) instead.
 Name:           waybar-workspace-buttons
-Version:        1.1.1
+Version:        1.1.2
 Release:        1%{?dist}
 Summary:        Waybar CFFI workspace-buttons module for Hyprland
 License:        MIT
@@ -47,6 +47,12 @@ module_path to %{_libdir}/waybar/workspace_buttons.so.
 %{_mandir}/man7/workspace-zones.7*
 
 %changelog
+* Fri Aug 22 2026 Mason Rhodes <mrhodesdev@gmail.com> - 1.1.2-1
+- Workspace click always dispatches the Lua form. The dialect detection
+  keyed on ~/.config/hypr/hyprland.lua existing emitted the removed
+  classic string dispatch whenever the stub was absent (hypr-DE 0.2.11+
+  packages the entrypoint under /etc/xdg), so bar clicks silently failed.
+
 * Fri Aug 22 2026 Mason Rhodes <mrhodesdev@gmail.com> - 1.1.1-1
 - Call /usr/bin/lmtt by absolute path for the tertiary token: a stale
   hand-built /usr/local/bin/lmtt shadowed the packaged binary and the

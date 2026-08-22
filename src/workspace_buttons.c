@@ -572,33 +572,13 @@ static void update_button_states(WorkspaceModule* mod) {
     }
 }
 
-// True when the Lua config dialect is active: Hyprland auto-selects
-// hyprland.lua over hyprland.conf whenever the file exists. Checked per
-// click (access() is cheap) so a dialect switch doesn't need a bar restart.
-static gboolean hyprland_lua_config_active(void) {
-    const char* xdg = getenv("XDG_CONFIG_HOME");
-    const char* home = getenv("HOME");
-    char path[512];
-    if (xdg && xdg[0] == '/')
-        snprintf(path, sizeof(path), "%s/hypr/hyprland.lua", xdg);
-    else if (home && home[0] == '/')
-        snprintf(path, sizeof(path), "%s/.config/hypr/hyprland.lua", home);
-    else
-        return FALSE;
-    return access(path, F_OK) == 0;
-}
-
-// Button click handler - switch to workspace
+// Button click handler - switch to workspace. Hyprland 0.56+ is Lua-config
+// only: dispatch arguments are Lua expressions (the classic string form no
+// longer exists), so there is no dialect to detect.
 static void on_button_clicked(GtkButton* button, gpointer user_data) {
     int workspace = GPOINTER_TO_INT(user_data);
     char cmd[128];
-    // Dispatch syntax depends on the config dialect: with hyprland.lua the
-    // args are Lua expressions; the classic string form fails there (and
-    // vice versa under hyprlang).
-    if (hyprland_lua_config_active())
-        snprintf(cmd, sizeof(cmd), "hyprctl dispatch 'hl.dsp.focus({workspace = %d})'", workspace);
-    else
-        snprintf(cmd, sizeof(cmd), "hyprctl dispatch workspace %d", workspace);
+    snprintf(cmd, sizeof(cmd), "hyprctl dispatch 'hl.dsp.focus({workspace = %d})'", workspace);
     system(cmd);
 }
 
