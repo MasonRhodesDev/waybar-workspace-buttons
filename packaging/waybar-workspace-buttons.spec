@@ -16,7 +16,7 @@
 %global hyprland_version %(pkg-config --modversion hyprland 2>/dev/null || echo 0)
 
 Name:           waybar-workspace-buttons
-Version:        1.2.0
+Version:        1.2.1
 Release:        1%{?dist}
 Summary:        Waybar CFFI workspace-buttons module for Hyprland
 License:        MIT
@@ -87,6 +87,9 @@ meson install -C plugin-build --destdir %{buildroot}
 %{_libdir}/hyprland/plugins/libworkspace-zones.so
 
 %changelog
+* Mon Aug 24 2026 Mason Rhodes <mrhodesdev@gmail.com> - 1.2.1-1
+- Rebuild against hyprland 0.56.2 (targets: fedora-43-aarch64 fedora-44-aarch64 fedora-45-aarch64 fedora-45-x86_64 fedora-rawhide-aarch64 fedora-rawhide-x86_64).
+
 * Mon Aug 24 2026 Mason Rhodes <mrhodesdev@gmail.com> - 1.2.0-1
 - Ship the workspace-zones Hyprland plugin on Fedora as the
   hyprland-workspace-zones subpackage, pinned to the exact hyprland version
