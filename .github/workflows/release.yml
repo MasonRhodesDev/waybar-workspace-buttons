@@ -13,3 +13,5 @@ jobs:
     secrets: inherit
     with:
       spec-name: waybar-workspace-buttons
+      # hyprland-workspace-zones BuildRequires pkgconfig(hyprland)
+      extra-copr-repos: nett00n/hyprland
