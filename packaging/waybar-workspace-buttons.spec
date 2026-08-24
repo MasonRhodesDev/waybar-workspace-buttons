@@ -1,12 +1,22 @@
 # RPM spec for waybar-workspace-buttons. Built in COPR from a local SRPM
 # produced by packaging/build-srpm.sh (source tarball from the git tag).
 #
-# Scope: this package ships ONLY the Waybar CFFI module. The companion
-# workspace-zones Hyprland plugin is ABI-locked to the exact Hyprland build
-# it runs on (runtime API-hash guard), so it cannot be usefully prebuilt as
-# an RPM — it is distributed via hyprpm (see hyprpm.toml) instead.
+# Ships the Waybar CFFI module (main package) and the workspace-zones
+# Hyprland plugin (hyprland-workspace-zones subpackage). The plugin is
+# ABI-locked to the exact Hyprland build it runs on (runtime API-hash
+# guard); now that the compositor itself is an RPM this is expressed as a
+# strict `Requires: hyprland = <built-against>`, computed from hyprland.pc
+# at build time. dnf then refuses a hyprland upgrade until a matching
+# plugin build exists — rebuild this package on every hyprland bump.
+# hyprland-git users keep a ~/.local rebuild (it shadows the packaged .so).
+
+# Exact compositor version the plugin is built against. Evaluates inside the
+# binary-build chroot where hyprland-devel is installed; the SRPM stage may
+# see 0, which is fine (SRPM Requires are not consumed).
+%global hyprland_version %(pkg-config --modversion hyprland 2>/dev/null || echo 0)
+
 Name:           waybar-workspace-buttons
-Version:        1.1.2
+Version:        1.2.0
 Release:        1%{?dist}
 Summary:        Waybar CFFI workspace-buttons module for Hyprland
 License:        MIT
@@ -15,7 +25,12 @@ Source0:        %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 
 BuildRequires:  meson
 BuildRequires:  gcc
+BuildRequires:  gcc-c++
 BuildRequires:  pkgconfig(gtk+-3.0)
+# workspace-zones plugin (hyprland.pc pulls the full hypr*-devel chain)
+BuildRequires:  pkgconfig(hyprland) >= 0.56
+BuildRequires:  pkgconfig(pixman-1)
+BuildRequires:  pkgconfig(libdrm)
 Requires:       waybar
 Requires:       jq
 
@@ -29,15 +44,34 @@ setups).
 Point Waybar at the module by setting the cffi/workspace-buttons
 module_path to %{_libdir}/waybar/workspace_buttons.so.
 
+%package -n hyprland-workspace-zones
+Summary:        Per-workspace special zones plugin for Hyprland
+# Strict lock: the plugin's API-hash guard requires the exact compositor
+# build it was compiled against. See the header comment.
+Requires:       hyprland = %{hyprland_version}
+
+%description -n hyprland-workspace-zones
+Hyprland plugin implementing per-workspace special zones: workspace N owns
+special:N, auto-dismissed on leave. Registers Lua functions
+(hl.plugin.zones.toggle/move/movesilent) for keybinds; hypr-DE loads it
+from %{_libdir}/hyprland/plugins/libworkspace-zones.so. A
+~/.local/lib/hyprland-plugins copy, if present, shadows this one (for
+hyprland-git rebuilds).
+
 %prep
 %autosetup
 
 %build
+# Refuse to build a plugin with an unresolved compositor pin.
+[ "%{hyprland_version}" != "0" ]
 %meson
 %meson_build
+meson setup plugin-build plugin --prefix=%{_prefix} --libdir=%{_lib} --buildtype=release
+meson compile -C plugin-build
 
 %install
 %meson_install
+meson install -C plugin-build --destdir %{buildroot}
 
 %files
 %license LICENSE
@@ -46,7 +80,18 @@ module_path to %{_libdir}/waybar/workspace_buttons.so.
 %{_libdir}/waybar/workspace_buttons.so
 %{_mandir}/man7/workspace-zones.7*
 
+%files -n hyprland-workspace-zones
+%license LICENSE
+%dir %{_libdir}/hyprland
+%dir %{_libdir}/hyprland/plugins
+%{_libdir}/hyprland/plugins/libworkspace-zones.so
+
 %changelog
+* Mon Aug 24 2026 Mason Rhodes <mrhodesdev@gmail.com> - 1.2.0-1
+- Ship the workspace-zones Hyprland plugin on Fedora as the
+  hyprland-workspace-zones subpackage, pinned to the exact hyprland version
+  it was built against. The compositor is RPM-managed now, so the plugin is
+  stack-managed too instead of a manual hyprpm/local rebuild.
 * Fri Aug 22 2026 Mason Rhodes <mrhodesdev@gmail.com> - 1.1.2-1
 - Workspace click always dispatches the Lua form. The dialect detection
   keyed on ~/.config/hypr/hyprland.lua existing emitted the removed

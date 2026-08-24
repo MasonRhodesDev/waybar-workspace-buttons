@@ -1,8 +1,9 @@
 #!/bin/bash
 # Build the SRPM (source tarball from a git tag) and optionally submit it to
-# COPR. Fedora packages ONLY the Waybar CFFI module — the workspace-zones
-# Hyprland plugin is ABI-locked to the running compositor and ships via
-# hyprpm instead (see hyprpm.toml).
+# COPR. Fedora ships the Waybar CFFI module AND the workspace-zones Hyprland
+# plugin (hyprland-workspace-zones subpackage, version-pinned to the
+# hyprland it was built against — resubmit a COPR build on every hyprland
+# bump so the pin tracks the compositor).
 #
 # Release flow (Fedora + Arch from the same tag):
 #   1. Bump root meson.build version + spec Version (+ %changelog) + PKGBUILD

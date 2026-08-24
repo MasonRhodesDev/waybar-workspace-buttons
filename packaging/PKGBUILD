@@ -2,11 +2,11 @@
 #
 # Arch package: Waybar CFFI module plus the workspace-zones Hyprland plugin
 # built against extra/hyprland. hyprland-git users keep a ~/.local rebuild.
-# Fedora still ships CFFI only (see the spec) — that plugin is ABI-locked
-# to the running compositor and goes through hyprpm there.
+# Fedora ships both too since 1.2.0: the plugin lands in the
+# hyprland-workspace-zones subpackage, version-pinned to hyprland (see spec).
 
 pkgname=waybar-workspace-buttons
-pkgver=1.1.2
+pkgver=1.2.0
 pkgrel=1
 pkgdesc="Waybar CFFI workspace-buttons module for Hyprland (per-monitor filtering, special workspace indicators)"
 arch=('x86_64')
