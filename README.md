@@ -84,9 +84,25 @@ sudo dnf install waybar-workspace-buttons
 
 The module installs to `/usr/lib64/waybar/workspace_buttons.so` (note
 `lib64`). Releases are submitted with `packaging/build-srpm.sh --copr` from
-the release tag. The workspace-zones Hyprland plugin is **not** in the RPM —
-it is ABI-locked to the exact Hyprland build it runs on, so install it
-through hyprpm (below), which rebuilds it against your compositor.
+the release tag. The workspace-zones Hyprland plugin ships as the
+**hyprland-workspace-zones** subpackage (since 1.2.0), installed to
+`/usr/lib64/hyprland/plugins/`. It is ABI-locked to the compositor, so it
+carries `Requires: hyprland = <the version it was built against>` — dnf
+holds a hyprland upgrade back until a matching plugin build exists.
+hyprland-git users should keep a local rebuild in
+`~/.local/lib/hyprland-plugins/` instead (it shadows the packaged .so).
+
+#### Build targets & support cadence
+
+The COPR project's build targets mirror
+[nett00n/hyprland](https://copr.fedorainfracloud.org/coprs/nett00n/hyprland/)
+(currently Fedora 43/44/45/rawhide on x86_64 + aarch64); the set is declared
+in `.github/workflows/release.yml` (`copr-chroots`) and enforced on every
+release. A daily pin-check workflow compares each target's plugin pin
+against the compositor version nett00n ships for it and automatically cuts
+a patch release when any target drifts (`hyprland-pin-check.yml`,
+`scripts/hyprland-pin-check.py`) — rebuilds must be real releases because a
+same-NEVRA COPR resubmit never reaches installed clients.
 
 ### From source
 

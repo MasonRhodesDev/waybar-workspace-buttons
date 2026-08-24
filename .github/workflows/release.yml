@@ -3,6 +3,9 @@ name: Release
 on:
   push:
     tags: ['v*']
+  # hyprland-pin-check cuts rebuild releases by tagging with GITHUB_TOKEN,
+  # whose pushes cannot trigger on:push — it dispatches this at the tag ref.
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -15,3 +18,8 @@ jobs:
       spec-name: waybar-workspace-buttons
       # hyprland-workspace-zones BuildRequires pkgconfig(hyprland)
       extra-copr-repos: nett00n/hyprland
+      # Build-target set: mirrors nett00n/hyprland. The daily pin-check
+      # keeps every target's plugin pin current (see hyprland-pin-check.yml).
+      copr-chroots: >-
+        fedora-43-x86_64 fedora-44-x86_64 fedora-45-x86_64 fedora-rawhide-x86_64
+        fedora-43-aarch64 fedora-44-aarch64 fedora-45-aarch64 fedora-rawhide-aarch64

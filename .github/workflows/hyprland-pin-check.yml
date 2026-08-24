@@ -1,0 +1,73 @@
+name: Hyprland pin check
+
+# Support cadence for the workspace-zones plugin's build targets.
+#
+# The plugin is version-pinned to the exact hyprland it was built against
+# (Requires: hyprland = X), so when nett00n/hyprland moves — or a new build
+# target is added to the COPR project — a rebuild must ship as a real patch
+# release: a same-NEVRA COPR resubmit never reaches installed clients, and
+# dnf holds the compositor upgrade back until a matching plugin exists.
+#
+# Daily: compare every build target's plugin pin against the compositor
+# version nett00n ships for it (table in the job summary), and on drift cut
+# the patch release automatically (version bump + tag + dispatch Release).
+
+on:
+  schedule:
+    - cron: '23 6 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: hyprland-pin-check
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  actions: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
+        with:
+          fetch-depth: 0
+
+      - name: Compare per-target pins
+        id: pins
+        run: |
+          {
+            echo "## workspace-zones pin check"
+            echo
+            python3 scripts/hyprland-pin-check.py
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Cut rebuild release
+        if: steps.pins.outputs.drift == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGETS: ${{ steps.pins.outputs.targets }}
+          HYPRLAND: ${{ steps.pins.outputs.hyprland }}
+        run: |
+          set -euo pipefail
+          spec=packaging/waybar-workspace-buttons.spec
+          ver=$(sed -n 's/^Version:[[:space:]]*//p' "$spec")
+          next="${ver%.*}.$(( ${ver##*.} + 1 ))"
+          if git ls-remote --exit-code origin "refs/tags/v$next" >/dev/null 2>&1; then
+            echo "::error::tag v$next already exists — resolve manually"
+            exit 1
+          fi
+          sed -i "s/^Version:.*/Version:        $next/" "$spec"
+          sed -i "0,/version: '/s/version: '[0-9.]*'/version: '$next'/" meson.build
+          sed -i -e "s/^pkgver=.*/pkgver=$next/" -e "s/^pkgrel=.*/pkgrel=1/" packaging/PKGBUILD
+          entry="* $(date +'%a %b %d %Y') Mason Rhodes <mrhodesdev@gmail.com> - $next-1\n- Rebuild against hyprland $HYPRLAND (targets: $TARGETS)."
+          sed -i "s|^%changelog|%changelog\n$entry\n|" "$spec"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore: rebuild against hyprland $HYPRLAND; release $next"
+          git tag "v$next"
+          git push origin HEAD:main "v$next"
+          # A GITHUB_TOKEN tag push cannot trigger on:push workflows —
+          # dispatch the Release workflow at the tag explicitly.
+          gh workflow run release.yml --ref "v$next"
+          echo "cut release v$next (targets: $TARGETS)" >> "$GITHUB_STEP_SUMMARY"
