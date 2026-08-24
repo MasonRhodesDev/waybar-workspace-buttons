@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
 """Compare hyprland-workspace-zones' per-target hyprland pin against the
-compositor version nett00n/hyprland currently ships for that target.
+compositor version each target currently ships.
 
-Build targets are read live from the COPR project's chroot set, so adding or
-dropping a chroot needs no change here. For every target the plugin either
-matches the compositor (ok), lags it (drift -> a rebuild release is needed;
-same-NEVRA COPR resubmits never reach installed clients), or is missing
-entirely (also drift, e.g. a freshly added chroot with no build yet). A
-target nett00n does not build for is reported and skipped.
+Fedora targets are read live from the COPR project's chroot set (compositor:
+nett00n/hyprland), so adding or dropping a chroot needs no change here.
+The Arch stable target compares the [mason] pacman repo's
+hyprland-workspace-zones pin against extra/hyprland. For every target the
+plugin either matches the compositor (ok), lags it (drift -> a rebuild
+release is needed; same-NEVRA COPR resubmits never reach installed clients,
+and pacman blocks the compositor upgrade until the pin catches up), or is
+missing entirely (also drift, e.g. a freshly added target with no build
+yet). A target the compositor source does not build for is reported and
+skipped. The hyprland-git channel is NOT checked here — arch-repo's
+git-builds workflow keeps that pair in lockstep on its own cadence.
 
 Output: a Markdown table on stdout, and GitHub Actions outputs (drift=...,
 targets=..., hyprland=...) appended to $GITHUB_OUTPUT when set.
@@ -22,6 +27,7 @@ import io
 import json
 import os
 import sys
+import tarfile
 import urllib.request
 import xml.etree.ElementTree as ET
 
@@ -107,6 +113,46 @@ def plugin_pin(primary: ET.Element) -> str | None:
     return best[1]
 
 
+ARCH_EXTRA_JSON = "https://archlinux.org/packages/extra/x86_64/hyprland/json/"
+MASON_DB = "https://masonrhodesdev.github.io/arch-repo/x86_64/mason.db"
+
+
+def arch_stable_row() -> tuple[str, str, str, str, bool]:
+    """(target, plugin pin, compositor, status, drifted) for extra/hyprland
+    vs the [mason] repo's hyprland-workspace-zones pin."""
+    target = "arch-stable-x86_64"
+    raw = fetch(ARCH_EXTRA_JSON)
+    if raw is None:
+        return (target, "—", "—", "skipped: archlinux.org unreachable", False)
+    extra_ver = json.loads(raw)["pkgver"]
+
+    pin = None
+    db = fetch(MASON_DB)
+    if db is not None:
+        with tarfile.open(fileobj=io.BytesIO(db), mode="r:*") as tar:
+            for member in tar.getmembers():
+                if not member.name.endswith("/desc"):
+                    continue
+                if not member.name.startswith(f"{PLUGIN}-"):
+                    continue
+                desc = tar.extractfile(member).read().decode()
+                lines = iter(desc.splitlines())
+                for line in lines:
+                    if line == "%DEPENDS%":
+                        for dep in lines:
+                            if not dep:
+                                break
+                            if dep.startswith(f"{COMPOSITOR}="):
+                                pin = dep.split("=", 1)[1].split("-", 1)[0]
+                        break
+
+    if pin is None:
+        return (target, "missing", extra_ver, "DRIFT: no plugin in [mason]", True)
+    if pin != extra_ver:
+        return (target, pin, extra_ver, "DRIFT: pin behind extra/hyprland", True)
+    return (target, pin, extra_ver, "ok", False)
+
+
 def main() -> int:
     raw = fetch(f"{API}/project?ownername={OWNER}&projectname={PROJECT}")
     if raw is None:
@@ -138,6 +184,13 @@ def main() -> int:
             drifted.append(chroot)
         else:
             rows.append((chroot, pin, comp_ver, "ok"))
+
+    a_target, a_pin, a_ver, a_status, a_drift = arch_stable_row()
+    rows.append((a_target, a_pin, a_ver, a_status))
+    if a_drift:
+        drifted.append(a_target)
+    if a_ver not in ("—",):
+        hypr_versions.add(a_ver)
 
     print("| target | plugin pin | hyprland | status |")
     print("|---|---|---|---|")

@@ -68,9 +68,20 @@ Then:
 sudo pacman -Syu waybar-workspace-buttons
 ```
 
-The module installs to `/usr/lib/waybar/workspace_buttons.so`. The Arch
-package also ships `workspace-zones(7)` and
-`/usr/lib/hyprland/plugins/libworkspace-zones.so` built against extra/hyprland.
+The module installs to `/usr/lib/waybar/workspace_buttons.so` and ships
+`workspace-zones(7)`. Since 1.3.0 the workspace-zones compositor plugin is
+the separate **hyprland-workspace-zones** package (pulled in automatically),
+built against extra/hyprland and pinned `hyprland=<the exact version it was
+built against>` — pacman holds a hyprland upgrade back until a matching
+plugin build exists, and the daily pin-check cuts that rebuild release.
+
+Running **hyprland-git**? Install `hyprland-git` and
+`hyprland-workspace-zones-git` from `[mason]` instead: the pair is built in
+lockstep (same job, exact-version depends) every 6 hours from hyprland main
+by [arch-repo](https://github.com/MasonRhodesDev/arch-repo)'s git-builds
+workflow. The -git plugin provides/conflicts `hyprland-workspace-zones`, so
+it satisfies this package's dependency.
+
 New releases land in the repo automatically — update with `pacman -Syu` like
 any other package. You can also build the same package yourself from
 `packaging/PKGBUILD` with `makepkg`.
