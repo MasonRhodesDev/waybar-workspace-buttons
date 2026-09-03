@@ -34,7 +34,7 @@ flowchart TD
         EVT["handle_event: workspace / focusedmon / activespecial / openwindow / closewindow / moveworkspace"]
         LOOP["GTK main loop"]
         UPD["update_button_states"]
-        DETECT["monitor auto-detect: match this bar's layer-surface x-position"]
+        DETECT["monitor auto-detect: gtk_layer_get_monitor → GdkMonitor logical (x,y)"]
         BTN["workspace buttons"]
     end
 
@@ -43,7 +43,7 @@ flowchart TD
     EVT -->|"g_idle_add — marshal to main loop"| LOOP
     LOOP --> UPD
     HYPR -->|"initial + refresh state: hyprctl -j piped to jq (monitors / workspaces / activeworkspace / clients)"| UPD
-    HYPR -->|"hyprctl layers -j + monitors -j"| DETECT
+    HYPR -->|"hyprctl monitors -j: match the GdkMonitor x/y"| DETECT
     DETECT --> UPD
     UPD -->|"CSS classes: active / visible / empty / has-special"| BTN
     BTN -->|"click: hyprctl dispatch 'hl.dsp.focus({workspace = N})'"| HYPR
@@ -117,7 +117,7 @@ same-NEVRA COPR resubmit never reaches installed clients.
 
 ### From source
 
-Requires: `meson`, `ninja`, `gtk3-devel`, `json-glib-devel`
+Requires: `meson`, `ninja`, `gtk3-devel`, `gtk-layer-shell-devel`
 
 ```bash
 meson setup build

@@ -15,6 +15,7 @@
  */
 
 #include "waybar_cffi_module.h"
+#include <gtk-layer-shell/gtk-layer-shell.h>
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -61,10 +62,6 @@ typedef struct {
 } WorkspaceModule;
 
 const size_t wbcffi_version = 2;
-
-// Monitor detection claim state (file-scope so it can be reset on reload)
-static int claimed_x_positions[10];
-static int claim_index = 0;
 
 // Forward declarations
 static void update_button_states(WorkspaceModule* mod);
@@ -139,7 +136,21 @@ static void start_ipc_thread(WorkspaceModule* mod) {
     }
 }
 
-// Detect which monitor this waybar instance is on (called from idle to ensure positioning is complete)
+// Monitor is known: load state, paint, and start listening for events
+static void finish_detection(WorkspaceModule* mod) {
+    fetch_initial_state(mod);
+    update_button_states(mod);
+    start_ipc_thread(mod);
+}
+
+// Detect which monitor this waybar instance is on (called from idle so the
+// bar's toplevel exists). Waybar assigns every bar its output through
+// gtk_layer_set_monitor(); that GdkMonitor's logical geometry is the position
+// Hyprland reports in `hyprctl monitors` (both come from xdg-output), so match
+// on (x, y). Negative coordinates and vertically stacked outputs are fine.
+//
+// Every resolution logs one `event=wsb.detect source=...` line so the journal
+// answers "which monitor did this bar bind to, and why".
 static gboolean detect_monitor_idle(gpointer user_data) {
     WorkspaceModule* mod = (WorkspaceModule*)user_data;
 
@@ -150,102 +161,60 @@ static gboolean detect_monitor_idle(gpointer user_data) {
 
     // If monitor was set from config, use that
     if (mod->monitor_name[0] != '\0') {
-        fprintf(stderr, "workspace_buttons: Using configured monitor: %s\n", mod->monitor_name);
-        fetch_initial_state(mod);
-        update_button_states(mod);
-        // Start IPC monitoring thread now that monitor is known
-        start_ipc_thread(mod);
+        fprintf(stderr, "workspace_buttons: event=wsb.detect source=config monitor=%s\n",
+                mod->monitor_name);
+        finish_detection(mod);
         return G_SOURCE_REMOVE;
     }
 
-    GtkWidget* widget = GTK_WIDGET(mod->container);
-    GtkWidget* toplevel = gtk_widget_get_toplevel(widget);
+    GtkWidget* toplevel = gtk_widget_get_toplevel(GTK_WIDGET(mod->container));
+    const char* reason = NULL;
+    const char* model = "";
+    GdkRectangle geom = {0, 0, 0, 0};
 
-    GtkAllocation alloc;
-    gtk_widget_get_allocation(toplevel, &alloc);
+    if (!GTK_IS_WINDOW(toplevel) || !gtk_layer_is_layer_window(GTK_WINDOW(toplevel))) {
+        reason = "no-layer-window";
+    } else {
+        GdkMonitor* monitor = gtk_layer_get_monitor(GTK_WINDOW(toplevel));
+        if (!monitor) {
+            // A freshly hotplugged bar may not have its monitor assigned yet
+            if (mod->detect_retries < 5) {
+                mod->detect_retries++;
+                fprintf(stderr, "workspace_buttons: event=wsb.detect.retry reason=no-gdk-monitor attempt=%d/5\n",
+                        mod->detect_retries);
+                g_timeout_add(400, detect_monitor_idle, mod);
+                return G_SOURCE_REMOVE;
+            }
+            reason = "no-gdk-monitor";
+        } else {
+            gdk_monitor_get_geometry(monitor, &geom);
+            const char* m = gdk_monitor_get_model(monitor);
+            if (m) model = m;
 
-    // Get all waybar surfaces from layer shell and try to match by dimensions
-    // Then find which monitor each surface is on
-    char cmd[1024];
-
-    snprintf(cmd, sizeof(cmd),
-             "hyprctl layers -j | jq -r '.[][] | .[] | .[] | select(.namespace == \"waybar\" and .w == %d) | .x' 2>/dev/null",
-             alloc.width);
-
-    char x_positions[256] = {0};
-    FILE* xfp = popen(cmd, "r");
-    if (xfp) {
-        size_t total = 0;
-        char xline[32];
-        while (fgets(xline, sizeof(xline), xfp) != NULL && total < sizeof(x_positions) - 1) {
-            size_t l = strlen(xline);
-            if (total + l < sizeof(x_positions) - 1) {
-                memcpy(x_positions + total, xline, l);
-                total += l;
+            char cmd[256];
+            snprintf(cmd, sizeof(cmd),
+                     "hyprctl monitors -j | jq -r '.[] | select(.x == %d and .y == %d) | .name' 2>/dev/null",
+                     geom.x, geom.y);
+            popen_string(cmd, mod->monitor_name, sizeof(mod->monitor_name));
+            if (mod->monitor_name[0] == '\0') {
+                reason = "no-monitor-at";
             }
         }
-        x_positions[total] = '\0';
-        pclose(xfp);
     }
 
-    // If no layer surfaces found yet, retry up to 5 times with 400ms delay
-    if (x_positions[0] == '\0') {
-        if (mod->detect_retries < 5) {
-            mod->detect_retries++;
-            fprintf(stderr, "workspace_buttons: No layer surfaces found, retry %d/5\n", mod->detect_retries);
-            g_timeout_add(400, detect_monitor_idle, mod);
-            return G_SOURCE_REMOVE;
-        }
-        // Exhausted retries, fall through to focused-monitor fallback
-    }
-
-    // Parse X positions and find an unclaimed one
-    char* token = strtok(x_positions, "\n");
-    int selected_x = -1;
-    while (token != NULL) {
-        int x = atoi(token);
-        int already_claimed = 0;
-        for (int i = 0; i < claim_index; i++) {
-            if (claimed_x_positions[i] == x) {
-                already_claimed = 1;
-                break;
-            }
-        }
-        if (!already_claimed) {
-            selected_x = x;
-            if (claim_index < (int)(sizeof(claimed_x_positions) / sizeof(claimed_x_positions[0]))) {
-                claimed_x_positions[claim_index++] = x;
-            }
-            break;
-        }
-        token = strtok(NULL, "\n");
-    }
-
-    if (selected_x >= 0) {
-        // Layer x positions are in logical coordinates; monitor .width/.height
-        // are pre-transform physical pixels, so pick the horizontal extent by
-        // rotation (odd transform = 90/270 degrees) and divide by .scale
-        snprintf(cmd, sizeof(cmd),
-                 "hyprctl monitors -j | jq -r '.[] | select(.x <= %d and (.x + ((if .transform %% 2 == 1 then .height else .width end) / .scale)) > %d) | .name' 2>/dev/null",
-                 selected_x, selected_x);
-        popen_string(cmd, mod->monitor_name, sizeof(mod->monitor_name));
-    }
-
-    // Fallback: get focused monitor if detection failed
-    if (mod->monitor_name[0] == '\0') {
+    if (reason) {
+        // Fallback: focused monitor. Loud, because the bar may now show the
+        // wrong output's workspaces.
         popen_string("hyprctl monitors -j | jq -r '.[] | select(.focused == true) | .name' 2>/dev/null",
                      mod->monitor_name, sizeof(mod->monitor_name));
+        fprintf(stderr, "workspace_buttons: event=wsb.detect source=fallback-focused reason=%s gdk_x=%d gdk_y=%d monitor=%s\n",
+                reason, geom.x, geom.y, mod->monitor_name);
+    } else {
+        fprintf(stderr, "workspace_buttons: event=wsb.detect source=layer-shell gdk_x=%d gdk_y=%d gdk_model=\"%s\" monitor=%s\n",
+                geom.x, geom.y, model, mod->monitor_name);
     }
 
-    fprintf(stderr, "workspace_buttons: Detected monitor: %s\n", mod->monitor_name);
-
-    // Now update state with correct monitor filtering
-    fetch_initial_state(mod);
-    update_button_states(mod);
-
-    // Start IPC monitoring thread now that monitor is known
-    start_ipc_thread(mod);
-
+    finish_detection(mod);
     return G_SOURCE_REMOVE;
 }
 
@@ -755,10 +724,6 @@ void* wbcffi_init(const wbcffi_init_info* init_info, const wbcffi_config_entry* 
 
     fprintf(stderr, "workspace_buttons: Config - all-outputs=%d, show-empty=%d\n",
             mod->all_outputs, mod->show_empty);
-
-    // Reset monitor claim state (needed for waybar reload - statics persist in .so)
-    memset(claimed_x_positions, 0, sizeof(claimed_x_positions));
-    claim_index = 0;
 
     // Load theme color
     load_tertiary_color(mod);

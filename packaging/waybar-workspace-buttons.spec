@@ -16,7 +16,7 @@
 %global hyprland_version %(pkg-config --modversion hyprland 2>/dev/null || echo 0)
 
 Name:           waybar-workspace-buttons
-Version:        1.3.0
+Version:        1.3.1
 Release:        1%{?dist}
 Summary:        Waybar CFFI workspace-buttons module for Hyprland
 License:        MIT
@@ -27,6 +27,7 @@ BuildRequires:  meson
 BuildRequires:  gcc
 BuildRequires:  gcc-c++
 BuildRequires:  pkgconfig(gtk+-3.0)
+BuildRequires:  pkgconfig(gtk-layer-shell-0)
 # workspace-zones plugin (hyprland.pc pulls the full hypr*-devel chain)
 BuildRequires:  pkgconfig(hyprland) >= 0.56
 BuildRequires:  pkgconfig(pixman-1)
@@ -87,6 +88,15 @@ meson install -C plugin-build --destdir %{buildroot}
 %{_libdir}/hyprland/plugins/libworkspace-zones.so
 
 %changelog
+* Thu Sep 03 2026 Mason Rhodes <mrhodesdev@gmail.com> - 1.3.1-1
+- Bind each bar to the monitor waybar assigned it (gtk_layer_get_monitor,
+  matched on logical x/y) instead of guessing from layer-surface x positions.
+  Bars on outputs at negative x silently fell back to the focused monitor and
+  showed its workspaces; hotplugged bars also wiped the other bars' claims.
+- Log one `event=wsb.detect source=...` line per resolution so the journal
+  shows which output a bar bound to and why.
+- New build dependency: gtk-layer-shell.
+
 * Mon Aug 24 2026 Mason Rhodes <mrhodesdev@gmail.com> - 1.3.0-1
 - Arch: split hyprland-workspace-zones into its own package with an exact
   hyprland pin (mirroring Fedora); waybar-workspace-buttons depends on the
