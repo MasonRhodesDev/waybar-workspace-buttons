@@ -1,6 +1,6 @@
 project(
     'waybar_workspace_buttons', 'c',
-    version: '1.3.1',
+    version: '1.3.2',
     license: 'MIT',
     default_options: ['c_std=gnu11']
 )
