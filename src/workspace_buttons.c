@@ -16,6 +16,9 @@
 
 #include "waybar_cffi_module.h"
 #include <gtk-layer-shell/gtk-layer-shell.h>
+#include <gdk/gdkwayland.h>
+#include <wayland-client.h>
+#include "xdg-output-unstable-v1-client-protocol.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -143,11 +146,139 @@ static void finish_detection(WorkspaceModule* mod) {
     start_ipc_thread(mod);
 }
 
+// ---- Output name via xdg-output ---------------------------------------------
+//
+// GTK 3 exposes no connector name for a GdkMonitor, and matching its logical
+// geometry against `hyprctl monitors` races the compositor: a freshly plugged
+// output reports (0,0) until xdg-output delivers its position, and Hyprland
+// re-arranges the layout when a monitor profile applies. Both settle after the
+// bar has mapped, so a snapshot taken on map can bind the bar to the wrong
+// output (2026-09-29: the DP-5 bar matched (0,0) to eDP-2).
+//
+// The connector name never moves. Create a private zxdg_output_v1 for the
+// GdkMonitor's wl_output on a private event queue and read its `name` event.
+// The private queue keeps GDK's own event stream untouched: the roundtrip
+// dispatches only ours.
+
+typedef struct {
+    struct zxdg_output_manager_v1* manager;
+    char name[64];
+} OutputNameProbe;
+
+static void probe_registry_global(void* data, struct wl_registry* registry, uint32_t id,
+                                  const char* interface, uint32_t version) {
+    OutputNameProbe* probe = data;
+    // `name` arrived in zxdg_output_v1 version 2; bind at most what we know (3)
+    if (strcmp(interface, zxdg_output_manager_v1_interface.name) == 0 && version >= 2) {
+        uint32_t bind_version = version < 3 ? version : 3;
+        probe->manager = wl_registry_bind(registry, id, &zxdg_output_manager_v1_interface,
+                                          bind_version);
+    }
+}
+
+static void probe_registry_global_remove(void* data, struct wl_registry* registry, uint32_t id) {
+    (void)data; (void)registry; (void)id;
+}
+
+static const struct wl_registry_listener probe_registry_listener = {
+    .global = probe_registry_global,
+    .global_remove = probe_registry_global_remove,
+};
+
+static void probe_xdg_output_logical_position(void* data, struct zxdg_output_v1* output,
+                                              int32_t x, int32_t y) {
+    (void)data; (void)output; (void)x; (void)y;
+}
+
+static void probe_xdg_output_logical_size(void* data, struct zxdg_output_v1* output,
+                                          int32_t width, int32_t height) {
+    (void)data; (void)output; (void)width; (void)height;
+}
+
+static void probe_xdg_output_done(void* data, struct zxdg_output_v1* output) {
+    (void)data; (void)output;
+}
+
+static void probe_xdg_output_description(void* data, struct zxdg_output_v1* output,
+                                         const char* description) {
+    (void)data; (void)output; (void)description;
+}
+
+static void probe_xdg_output_name(void* data, struct zxdg_output_v1* output, const char* name) {
+    (void)output;
+    OutputNameProbe* probe = data;
+    // The name is spliced into shell commands: keep only connector characters
+    size_t n = 0;
+    for (const char* r = name; *r && n < sizeof(probe->name) - 1; r++) {
+        if (isalnum((unsigned char)*r) || *r == '-' || *r == '_') {
+            probe->name[n++] = *r;
+        }
+    }
+    probe->name[n] = '\0';
+}
+
+static const struct zxdg_output_v1_listener probe_xdg_output_listener = {
+    .logical_position = probe_xdg_output_logical_position,
+    .logical_size = probe_xdg_output_logical_size,
+    .done = probe_xdg_output_done,
+    .name = probe_xdg_output_name,
+    .description = probe_xdg_output_description,
+};
+
+// Writes the xdg-output name of the GdkMonitor's wl_output into `out`, or ""
+// when the display is not Wayland or the compositor lacks xdg-output >= 2.
+// Runs on the GTK thread; blocks for two compositor roundtrips.
+static void resolve_output_name(GdkMonitor* monitor, char* out, size_t out_size) {
+    out[0] = '\0';
+
+    GdkDisplay* gdk_display = gdk_monitor_get_display(monitor);
+    if (!GDK_IS_WAYLAND_DISPLAY(gdk_display) || !GDK_IS_WAYLAND_MONITOR(monitor)) return;
+    struct wl_display* display = gdk_wayland_display_get_wl_display(gdk_display);
+    struct wl_output* output = gdk_wayland_monitor_get_wl_output(monitor);
+    if (!display || !output) return;
+
+    struct wl_event_queue* queue = wl_display_create_queue(display);
+    if (!queue) return;
+
+    // A display wrapper on our queue makes the registry (and everything bound
+    // through it) deliver events to our queue instead of GDK's.
+    struct wl_display* display_wrapper = wl_proxy_create_wrapper(display);
+    if (!display_wrapper) {
+        wl_event_queue_destroy(queue);
+        return;
+    }
+    wl_proxy_set_queue((struct wl_proxy*)display_wrapper, queue);
+    struct wl_registry* registry = wl_display_get_registry(display_wrapper);
+    wl_proxy_wrapper_destroy(display_wrapper);
+    if (!registry) {
+        wl_event_queue_destroy(queue);
+        return;
+    }
+
+    OutputNameProbe probe = {0};
+    wl_registry_add_listener(registry, &probe_registry_listener, &probe);
+    if (wl_display_roundtrip_queue(display, queue) >= 0 && probe.manager) {
+        struct zxdg_output_v1* xdg_output =
+            zxdg_output_manager_v1_get_xdg_output(probe.manager, output);
+        if (xdg_output) {
+            zxdg_output_v1_add_listener(xdg_output, &probe_xdg_output_listener, &probe);
+            wl_display_roundtrip_queue(display, queue);
+            zxdg_output_v1_destroy(xdg_output);
+        }
+    }
+    if (probe.manager) zxdg_output_manager_v1_destroy(probe.manager);
+    wl_registry_destroy(registry);
+    wl_event_queue_destroy(queue);
+
+    snprintf(out, out_size, "%s", probe.name);
+}
+
 // Detect which monitor this waybar instance is on (called from idle so the
 // bar's toplevel exists). Waybar assigns every bar its output through
-// gtk_layer_set_monitor(); that GdkMonitor's logical geometry is the position
-// Hyprland reports in `hyprctl monitors` (both come from xdg-output), so match
-// on (x, y). Negative coordinates and vertically stacked outputs are fine.
+// gtk_layer_set_monitor(); ask that GdkMonitor's wl_output for its xdg-output
+// name, which is the connector name Hyprland uses. Fall back to matching the
+// monitor's logical (x, y) against `hyprctl monitors`, then to the focused
+// monitor.
 //
 // Every resolution logs one `event=wsb.detect source=...` line so the journal
 // answers "which monitor did this bar bind to, and why".
@@ -168,8 +299,10 @@ static gboolean detect_monitor_idle(gpointer user_data) {
     }
 
     GtkWidget* toplevel = gtk_widget_get_toplevel(GTK_WIDGET(mod->container));
-    const char* reason = NULL;
+    const char* source = NULL;   // which path produced monitor_name
+    const char* reason = NULL;   // why the preferred path did not
     const char* model = "";
+    char xdg_name[64] = "";
     GdkRectangle geom = {0, 0, 0, 0};
 
     if (!GTK_IS_WINDOW(toplevel) || !gtk_layer_is_layer_window(GTK_WINDOW(toplevel))) {
@@ -192,26 +325,52 @@ static gboolean detect_monitor_idle(gpointer user_data) {
             if (m) model = m;
 
             char cmd[256];
-            snprintf(cmd, sizeof(cmd),
-                     "hyprctl monitors -j | jq -r '.[] | select(.x == %d and .y == %d) | .name' 2>/dev/null",
-                     geom.x, geom.y);
-            popen_string(cmd, mod->monitor_name, sizeof(mod->monitor_name));
-            if (mod->monitor_name[0] == '\0') {
-                reason = "no-monitor-at";
+
+            // Preferred: the connector name from xdg-output, confirmed against
+            // Hyprland so a name it does not know cannot leak into commands.
+            resolve_output_name(monitor, xdg_name, sizeof(xdg_name));
+            if (xdg_name[0] != '\0') {
+                snprintf(cmd, sizeof(cmd),
+                         "hyprctl monitors -j | jq -r '.[] | select(.name == \"%s\") | .name' 2>/dev/null",
+                         xdg_name);
+                popen_string(cmd, mod->monitor_name, sizeof(mod->monitor_name));
+                if (mod->monitor_name[0] != '\0') {
+                    source = "xdg-output";
+                } else {
+                    reason = "xdg-output-name-unknown";
+                }
+            } else {
+                reason = "no-xdg-output-name";
+            }
+
+            // Second: logical (x, y). Races layout changes, see the 2026-09-29 ADR.
+            if (!source) {
+                snprintf(cmd, sizeof(cmd),
+                         "hyprctl monitors -j | jq -r '.[] | select(.x == %d and .y == %d) | .name' 2>/dev/null",
+                         geom.x, geom.y);
+                popen_string(cmd, mod->monitor_name, sizeof(mod->monitor_name));
+                if (mod->monitor_name[0] != '\0') {
+                    source = "layer-shell-geometry";
+                } else {
+                    reason = "no-monitor-at";
+                }
             }
         }
     }
 
-    if (reason) {
-        // Fallback: focused monitor. Loud, because the bar may now show the
+    if (!source) {
+        // Last: focused monitor. Loud, because the bar may now show the
         // wrong output's workspaces.
         popen_string("hyprctl monitors -j | jq -r '.[] | select(.focused == true) | .name' 2>/dev/null",
                      mod->monitor_name, sizeof(mod->monitor_name));
-        fprintf(stderr, "workspace_buttons: event=wsb.detect source=fallback-focused reason=%s gdk_x=%d gdk_y=%d monitor=%s\n",
-                reason, geom.x, geom.y, mod->monitor_name);
+        fprintf(stderr, "workspace_buttons: event=wsb.detect source=fallback-focused reason=%s xdg_name=\"%s\" gdk_x=%d gdk_y=%d monitor=%s\n",
+                reason, xdg_name, geom.x, geom.y, mod->monitor_name);
+    } else if (reason) {
+        fprintf(stderr, "workspace_buttons: event=wsb.detect source=%s reason=%s xdg_name=\"%s\" gdk_x=%d gdk_y=%d gdk_model=\"%s\" monitor=%s\n",
+                source, reason, xdg_name, geom.x, geom.y, model, mod->monitor_name);
     } else {
-        fprintf(stderr, "workspace_buttons: event=wsb.detect source=layer-shell gdk_x=%d gdk_y=%d gdk_model=\"%s\" monitor=%s\n",
-                geom.x, geom.y, model, mod->monitor_name);
+        fprintf(stderr, "workspace_buttons: event=wsb.detect source=%s xdg_name=\"%s\" gdk_x=%d gdk_y=%d gdk_model=\"%s\" monitor=%s\n",
+                source, xdg_name, geom.x, geom.y, model, mod->monitor_name);
     }
 
     finish_detection(mod);

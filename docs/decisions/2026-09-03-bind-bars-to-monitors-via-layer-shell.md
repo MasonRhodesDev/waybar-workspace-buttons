@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted
+Accepted. Decision 2 (match on logical x/y) is superseded by
+[ADR 2026-09-29](2026-09-29-resolve-output-name-via-xdg-output.md); the x/y
+match remains as the first fallback.
 
 ## Context
 

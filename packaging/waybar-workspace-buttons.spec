@@ -16,7 +16,7 @@
 %global hyprland_version %(pkg-config --modversion hyprland 2>/dev/null || echo 0)
 
 Name:           waybar-workspace-buttons
-Version:        1.3.2
+Version:        1.4.0
 Release:        1%{?dist}
 Summary:        Waybar CFFI workspace-buttons module for Hyprland
 License:        MIT
@@ -28,6 +28,10 @@ BuildRequires:  gcc
 BuildRequires:  gcc-c++
 BuildRequires:  pkgconfig(gtk+-3.0)
 BuildRequires:  pkgconfig(gtk-layer-shell-0)
+# xdg-output name resolution (protocol code generated at build time)
+BuildRequires:  pkgconfig(wayland-client)
+BuildRequires:  pkgconfig(wayland-protocols) >= 1.14
+BuildRequires:  pkgconfig(wayland-scanner)
 # workspace-zones plugin (hyprland.pc pulls the full hypr*-devel chain)
 BuildRequires:  pkgconfig(hyprland) >= 0.56
 BuildRequires:  pkgconfig(pixman-1)
@@ -88,6 +92,16 @@ meson install -C plugin-build --destdir %{buildroot}
 %{_libdir}/hyprland/plugins/libworkspace-zones.so
 
 %changelog
+* Tue Sep 29 2026 Mason Rhodes <mrhodesdev@gmail.com> - 1.4.0-1
+- Resolve each bar's output by its xdg-output connector name instead of
+  matching logical x/y. The x/y snapshot taken on map raced hotplug and
+  monitor-profile changes: a replugged DP-5 and eDP-2 both sat at (0,0) for
+  a moment, so the DP-5 bar bound to eDP-2 and showed its workspaces.
+  The x/y match stays as the first fallback, the focused monitor as the last.
+- `event=wsb.detect` logs `source=xdg-output` and `xdg_name=`; the geometry
+  path is now `source=layer-shell-geometry`.
+- New build dependencies: wayland-client, wayland-protocols, wayland-scanner.
+
 * Wed Sep 09 2026 Mason Rhodes <mrhodesdev@gmail.com> - 1.3.2-1
 - Rebuild against hyprland 0.56.2 (targets: fedora-43-aarch64 fedora-43-x86_64 fedora-44-aarch64 fedora-44-x86_64 fedora-45-aarch64 fedora-45-x86_64 fedora-rawhide-aarch64 fedora-rawhide-x86_64).
 

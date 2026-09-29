@@ -117,7 +117,7 @@ same-NEVRA COPR resubmit never reaches installed clients.
 
 ### From source
 
-Requires: `meson`, `ninja`, `gtk3-devel`, `gtk-layer-shell-devel`
+Requires: `meson`, `ninja`, `gtk3-devel`, `gtk-layer-shell-devel`, `wayland-devel`, `wayland-protocols-devel`
 
 ```bash
 meson setup build
