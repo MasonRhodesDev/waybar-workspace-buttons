@@ -15,7 +15,7 @@ pkgbase=waybar-workspace-buttons
 pkgname=('waybar-workspace-buttons' 'hyprland-workspace-zones')
 pkgver=1.4.0
 pkgrel=1
-arch=('x86_64')
+arch=('x86_64' 'aarch64')
 url="https://github.com/MasonRhodesDev/waybar-workspace-buttons"
 license=('MIT')
 makedepends=('meson' 'gtk3' 'gtk-layer-shell' 'wayland' 'wayland-protocols' 'jq' 'hyprland>=0.56' 'pixman' 'libdrm')
