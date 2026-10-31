@@ -16,7 +16,7 @@
 %global hyprland_version %(pkg-config --modversion hyprland 2>/dev/null || echo 0)
 
 Name:           waybar-workspace-buttons
-Version:        1.4.2
+Version:        1.4.3
 Release:        1%{?dist}
 Summary:        Waybar CFFI workspace-buttons module for Hyprland
 License:        MIT
@@ -92,6 +92,9 @@ meson install -C plugin-build --destdir %{buildroot}
 %{_libdir}/hyprland/plugins/libworkspace-zones.so
 
 %changelog
+* Sat Oct 31 2026 Mason Rhodes <mrhodesdev@gmail.com> - 1.4.3-1
+- Rebuild against hyprland 0.56.2 0.57.0 (targets: arch-stable-x86_64).
+
 * Fri Oct 30 2026 Mason Rhodes <mrhodesdev@gmail.com> - 1.4.2-1
 - Rebuild against hyprland 0.56.2 0.57.0 (targets: arch-stable-x86_64).
 
