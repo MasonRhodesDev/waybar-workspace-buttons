@@ -69,18 +69,9 @@ sudo pacman -Syu waybar-workspace-buttons
 ```
 
 The module installs to `/usr/lib/waybar/workspace_buttons.so` and ships
-`workspace-zones(7)`. Since 1.3.0 the workspace-zones compositor plugin is
-the separate **hyprland-workspace-zones** package (pulled in automatically),
-built against extra/hyprland and pinned `hyprland=<the exact version it was
-built against>` — pacman holds a hyprland upgrade back until a matching
-plugin build exists, and the daily pin-check cuts that rebuild release.
-
-Running **hyprland-git**? Install `hyprland-git` and
-`hyprland-workspace-zones-git` from `[mason]` instead: the pair is built in
-lockstep (same job, exact-version depends) every 6 hours from hyprland main
-by [arch-repo](https://github.com/MasonRhodesDev/arch-repo)'s git-builds
-workflow. The -git plugin provides/conflicts `hyprland-workspace-zones`, so
-it satisfies this package's dependency.
+`workspace-zones(7)`. Since 1.5.0 it replaces the retired
+`hyprland-workspace-zones` and `hyprland-workspace-zones-git` plugin
+packages, so pacman offers to remove whichever one is installed.
 
 New releases land in the repo automatically — update with `pacman -Syu` like
 any other package. You can also build the same package yourself from
@@ -95,13 +86,9 @@ sudo dnf install waybar-workspace-buttons
 
 The module installs to `/usr/lib64/waybar/workspace_buttons.so` (note
 `lib64`). Releases are submitted with `packaging/build-srpm.sh --copr` from
-the release tag. The workspace-zones Hyprland plugin ships as the
-**hyprland-workspace-zones** subpackage (since 1.2.0), installed to
-`/usr/lib64/hyprland/plugins/`. It is ABI-locked to the compositor, so it
-carries `Requires: hyprland = <the version it was built against>` — dnf
-holds a hyprland upgrade back until a matching plugin build exists.
-hyprland-git users should keep a local rebuild in
-`~/.local/lib/hyprland-plugins/` instead (it shadows the packaged .so).
+the release tag. Since 1.5.0 the package obsoletes the retired
+`hyprland-workspace-zones` plugin package, so an upgrade removes it together
+with its exact `hyprland` version pin.
 
 #### Build targets & support cadence
 
@@ -109,11 +96,7 @@ The COPR project's build targets mirror
 [nett00n/hyprland](https://copr.fedorainfracloud.org/coprs/nett00n/hyprland/)
 (currently Fedora 43/44/45/rawhide on x86_64 + aarch64); the set is declared
 in `.github/workflows/release.yml` (`copr-chroots`) and enforced on every
-release. A daily pin-check workflow compares each target's plugin pin
-against the compositor version nett00n ships for it and automatically cuts
-a patch release when any target drifts (`hyprland-pin-check.yml`,
-`scripts/hyprland-pin-check.py`) — rebuilds must be real releases because a
-same-NEVRA COPR resubmit never reaches installed clients.
+release.
 
 ### From source
 
@@ -203,49 +186,53 @@ This module works with Hyprland's per-workspace special workspaces (`special:1` 
 
 The dot color comes from `lmtt tokens --key tertiary`, or `#adc8f8` if LMTT is unavailable.
 
-### Per-workspace special zones (Hyprland plugin)
+### Per-workspace special zones
 
-This repo also ships **workspace-zones**, a small Hyprland plugin that gives
-every numeric workspace its own scratch zone: workspace `N` owns `special:N`.
-It is the setup the `has-special` dot was built for.
+Every numeric workspace can own a scratch zone: workspace `N` owns
+`special:N`. It is the setup the `has-special` dot was built for.
 
-On Arch extra/hyprland the plugin is in the package. hyprland-git and Fedora
-still need hyprpm, because the plugin is ABI-locked to the running compositor:
-
-```sh
-hyprpm add https://github.com/MasonRhodesDev/waybar-workspace-buttons
-hyprpm enable workspace-zones
-```
-
-The plugin requires Hyprland **0.56+** with the **Lua config** (`hyprland.lua`)
-— the only supported configuration. Classic `zones:*` string dispatchers no
-longer exist: Hyprland's 0.56 keybinds refactor removed string dispatchers
-compositor-wide. Bind the first-party functions under `hl.plugin.zones` —
-your plain `hl.bind` workspace binds stay as they are:
+Zones are a few lines of Lua in the Hyprland config. They need Hyprland
+**0.57+** with the **Lua config** (`hyprland.lua`) and no compositor plugin.
+hypr-DE ships them. For another config:
 
 ```lua
-hl.bind("SUPER + ALT + S",         function() hl.plugin.zones.toggle() end)
-hl.bind("SUPER + ALT + SHIFT + S", function() hl.plugin.zones.move() end)
-hl.bind("SUPER + CTRL + ALT + S",  function() hl.plugin.zones.movesilent() end)
+local zones = {}
+
+local function zone_owner()
+    local ws = hl.get_active_workspace()
+    return ws and ws.id or nil      -- nil on a named workspace
+end
+
+function zones.toggle()
+    local id = zone_owner()
+    if id then hl.dispatch(hl.dsp.workspace.toggle_special(tostring(id))) end
+end
+
+function zones.move(follow)
+    local id = zone_owner()
+    if id then hl.dispatch(hl.dsp.window.move({ workspace = "special:" .. id, follow = follow })) end
+end
+
+hl.bind("SUPER + ALT + S",         function() zones.toggle() end)
+hl.bind("SUPER + ALT + SHIFT + S", function() zones.move(true) end)
+hl.bind("SUPER + CTRL + ALT + S",  function() zones.move(false) end)
+
+hl.config({ binds = { hide_special_on_workspace_change = true } })
 ```
 
-Leaving a workspace closes its zone automatically, no matter how the switch
-happened — keybind, bar click, `hyprctl` — so a zone never lingers over an
-unrelated workspace. Named specials (`special:magic`, ...) are never touched.
-To keep zones open across switches instead:
-
-```ini
-plugin:workspace-zones:auto_dismiss = 0
-```
+`hide_special_on_workspace_change` is what closes a zone when its workspace
+is left, no matter how the switch happened. It is scoped to the target
+workspace's monitor, and it also covers switching to the workspace already
+underneath the special. It applies to named specials such as `special:magic`
+too.
 
 `man workspace-zones` is the full reference. hypr-DE's help window
 (`hypr-de-help`, SUPER+/) explains how zones differ from the named
 scratchpad.
 
-To dismiss *named* specials on workspace switches too, no plugin needed —
-Hyprland's own `binds:hide_special_on_workspace_change = true` does it, scoped
-to the target workspace's monitor (a special open on another monitor stays),
-and it also covers switching to the workspace already underneath the special.
+Until 1.5.0 zones came from a compiled Hyprland plugin in this repo.
+[ADR 2026-11-10](docs/decisions/2026-11-10-zones-in-lua-not-a-plugin.md)
+records why it was retired.
 
 ## Hyprland Events Handled
 
