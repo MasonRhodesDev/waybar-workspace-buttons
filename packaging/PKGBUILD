@@ -13,7 +13,7 @@
 
 pkgbase=waybar-workspace-buttons
 pkgname=('waybar-workspace-buttons' 'hyprland-workspace-zones')
-pkgver=1.4.12
+pkgver=1.4.13
 pkgrel=1
 arch=('x86_64' 'aarch64')
 url="https://github.com/MasonRhodesDev/waybar-workspace-buttons"
