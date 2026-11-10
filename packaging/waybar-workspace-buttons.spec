@@ -33,7 +33,7 @@ BuildRequires:  pkgconfig(wayland-client)
 BuildRequires:  pkgconfig(wayland-protocols) >= 1.14
 BuildRequires:  pkgconfig(wayland-scanner)
 # workspace-zones plugin (hyprland.pc pulls the full hypr*-devel chain)
-BuildRequires:  pkgconfig(hyprland) >= 0.56
+BuildRequires:  pkgconfig(hyprland) >= 0.57
 BuildRequires:  pkgconfig(pixman-1)
 BuildRequires:  pkgconfig(libdrm)
 Requires:       waybar
