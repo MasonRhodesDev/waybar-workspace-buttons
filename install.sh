@@ -3,8 +3,8 @@
 # - Builds workspace_buttons.so (meson/ninja) if needed
 # - Installs it to ~/.config/waybar/cffi/
 #
-# The companion workspace-zones Hyprland plugin is NOT installed here —
-# it ships via hyprpm (see README, "Per-workspace special zones").
+# Workspace zones need nothing installed: they are Lua in the Hyprland
+# config (see README, "Per-workspace special zones").
 set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")" && pwd)"

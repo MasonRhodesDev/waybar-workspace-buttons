@@ -1,22 +1,13 @@
 # RPM spec for waybar-workspace-buttons. Built in COPR from a local SRPM
 # produced by packaging/build-srpm.sh (source tarball from the git tag).
 #
-# Ships the Waybar CFFI module (main package) and the workspace-zones
-# Hyprland plugin (hyprland-workspace-zones subpackage). The plugin is
-# ABI-locked to the exact Hyprland build it runs on (runtime API-hash
-# guard); now that the compositor itself is an RPM this is expressed as a
-# strict `Requires: hyprland = <built-against>`, computed from hyprland.pc
-# at build time. dnf then refuses a hyprland upgrade until a matching
-# plugin build exists — rebuild this package on every hyprland bump.
-# hyprland-git users keep a ~/.local rebuild (it shadows the packaged .so).
-
-# Exact compositor version the plugin is built against. Evaluates inside the
-# binary-build chroot where hyprland-devel is installed; the SRPM stage may
-# see 0, which is fine (SRPM Requires are not consumed).
-%global hyprland_version %(pkg-config --modversion hyprland 2>/dev/null || echo 0)
+# Ships the Waybar CFFI module and the workspace-zones(7) man page. The
+# workspace-zones compositor plugin was retired in 1.5.0 because zones are
+# Lua in the Hyprland config now (docs/decisions has the record). Nothing
+# here is built against the compositor and nothing pins its version.
 
 Name:           waybar-workspace-buttons
-Version:        1.4.13
+Version:        1.5.0
 Release:        1%{?dist}
 Summary:        Waybar CFFI workspace-buttons module for Hyprland
 License:        MIT
@@ -32,12 +23,11 @@ BuildRequires:  pkgconfig(gtk-layer-shell-0)
 BuildRequires:  pkgconfig(wayland-client)
 BuildRequires:  pkgconfig(wayland-protocols) >= 1.14
 BuildRequires:  pkgconfig(wayland-scanner)
-# workspace-zones plugin (hyprland.pc pulls the full hypr*-devel chain)
-BuildRequires:  pkgconfig(hyprland) >= 0.57
-BuildRequires:  pkgconfig(pixman-1)
-BuildRequires:  pkgconfig(libdrm)
 Requires:       waybar
 Requires:       jq
+# The retired plugin package pinned `hyprland = <exact version>`. Obsolete it
+# so an upgrade removes it and the pin stops holding hyprland back.
+Obsoletes:      hyprland-workspace-zones < 1.5.0
 
 %description
 A Waybar CFFI module rendering per-monitor workspace buttons for Hyprland
@@ -49,34 +39,15 @@ setups).
 Point Waybar at the module by setting the cffi/workspace-buttons
 module_path to %{_libdir}/waybar/workspace_buttons.so.
 
-%package -n hyprland-workspace-zones
-Summary:        Per-workspace special zones plugin for Hyprland
-# Strict lock: the plugin's API-hash guard requires the exact compositor
-# build it was compiled against. See the header comment.
-Requires:       hyprland = %{hyprland_version}
-
-%description -n hyprland-workspace-zones
-Hyprland plugin implementing per-workspace special zones: workspace N owns
-special:N, auto-dismissed on leave. Registers Lua functions
-(hl.plugin.zones.toggle/move/movesilent) for keybinds; hypr-DE loads it
-from %{_libdir}/hyprland/plugins/libworkspace-zones.so. A
-~/.local/lib/hyprland-plugins copy, if present, shadows this one (for
-hyprland-git rebuilds).
-
 %prep
 %autosetup
 
 %build
-# Refuse to build a plugin with an unresolved compositor pin.
-[ "%{hyprland_version}" != "0" ]
 %meson
 %meson_build
-meson setup plugin-build plugin --prefix=%{_prefix} --libdir=%{_lib} --buildtype=release
-meson compile -C plugin-build
 
 %install
 %meson_install
-meson install -C plugin-build --destdir %{buildroot}
 
 %files
 %license LICENSE
@@ -85,13 +56,19 @@ meson install -C plugin-build --destdir %{buildroot}
 %{_libdir}/waybar/workspace_buttons.so
 %{_mandir}/man7/workspace-zones.7*
 
-%files -n hyprland-workspace-zones
-%license LICENSE
-%dir %{_libdir}/hyprland
-%dir %{_libdir}/hyprland/plugins
-%{_libdir}/hyprland/plugins/libworkspace-zones.so
-
 %changelog
+* Tue Nov 10 2026 Mason Rhodes <mrhodesdev@gmail.com> - 1.5.0-1
+- Retire the workspace-zones compositor plugin and the
+  hyprland-workspace-zones package. Zones are Lua in the Hyprland config
+  (hypr-DE 0.2.39 ships them), built on Hyprland 0.57's Lua API. The plugin
+  compiled against Hyprland's internal headers, broke on 0.55, 0.56 and
+  0.57, and pinned an exact hyprland version, which held machines on
+  0.56.2 after 0.57 fixed a compositor crash.
+- This package obsoletes hyprland-workspace-zones, so an upgrade removes it
+  and its hyprland pin.
+- The daily pin check and its rebuild releases are gone with the plugin.
+- workspace-zones(7) describes the Lua zones.
+
 * Tue Nov 10 2026 Mason Rhodes <mrhodesdev@gmail.com> - 1.4.13-1
 - Rebuild against hyprland 0.57.1 0.57.2 (targets: fedora-43-aarch64 fedora-43-x86_64 fedora-44-aarch64 fedora-44-x86_64 fedora-45-aarch64 fedora-45-x86_64 fedora-rawhide-aarch64 fedora-rawhide-x86_64 arch-stable-x86_64).
 

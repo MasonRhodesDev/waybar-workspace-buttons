@@ -16,5 +16,3 @@ jobs:
     uses: MasonRhodesDev/packaging-workflows/.github/workflows/rpm-check.yml@v1
     with:
       spec-name: waybar-workspace-buttons
-      # hyprland-workspace-zones BuildRequires pkgconfig(hyprland)
-      extra-copr-repos: nett00n/hyprland

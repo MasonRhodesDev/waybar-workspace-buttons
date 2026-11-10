@@ -1,87 +1,80 @@
-.TH WORKSPACE-ZONES 7 "2026-08-20" "waybar-workspace-buttons" "Hyprland"
+.TH WORKSPACE-ZONES 7 "2026-11-10" "waybar-workspace-buttons" "Hyprland"
 .SH NAME
 workspace-zones \- per-workspace scratch zones for Hyprland
 .SH DESCRIPTION
-workspace-zones is a Hyprland plugin that gives every numeric workspace its
-own scratch zone: workspace
+A workspace zone gives every numeric workspace its own scratch area:
+workspace
 .I N
 owns
 .IR special:N .
-Leaving a workspace closes its zone automatically, no matter how the switch
-happened (keybind, bar click,
+Leaving a workspace closes its zone, no matter how the switch happened
+(keybind, bar click,
 .BR hyprctl ).
-Named specials such as
-.I special:magic
-are never touched.
 .PP
-The plugin lives in the waybar-workspace-buttons repository.
-On Arch the
-.B waybar-workspace-buttons
-package installs
-.I /usr/lib/hyprland/plugins/libworkspace-zones.so
-built against extra/hyprland. hyprland-git and Fedora still need
-.BR hyprpm ,
-because the plugin is ABI-locked to the running compositor.
-The packaged Waybar CFFI module only draws the
-has-special dot on workspace buttons; that dot is what these zones were
-built for.
-.SH INSTALLATION
-.nf
-# Arch extra/hyprland: already in the package.
-# hyprland-git or Fedora:
-hyprpm add https://github.com/MasonRhodesDev/waybar-workspace-buttons
-hyprpm enable workspace-zones
-.fi
-.PP
-hypr-DE loads a
-.I ~/.local/lib/hyprland-plugins/libworkspace-zones.so
-override if present, otherwise the packaged path, inside a pcall so a
-missing plugin does not abort the rest of the config.
-.SH BINDINGS
-The plugin requires Hyprland 0.56 or newer with the Lua config
+Zones are a few lines of Lua in the Hyprland config. They need Hyprland
+0.57 or newer with the Lua config
 .RI ( hyprland.lua ),
-the only supported configuration. Classic
-.I zones:*
-string dispatchers no longer exist: Hyprland's 0.56 keybinds refactor removed
-string dispatchers compositor-wide. The plugin registers first-party
-functions under
-.BR hl.plugin.zones :
+and they need no compositor plugin. hypr-DE ships them in its packaged
+config. The Waybar CFFI module in this package only draws the has-special
+dot on workspace buttons; that dot is what these zones were built for.
 .PP
+Until waybar-workspace-buttons 1.5.0 zones came from a compiled Hyprland
+plugin of the same name. It was retired because it had to be rebuilt for
+every Hyprland release and its package pinned an exact Hyprland version.
+.SH CONFIGURATION
 .nf
-hl.bind("SUPER + ALT + S",         function() hl.plugin.zones.toggle() end)
-hl.bind("SUPER + ALT + SHIFT + S", function() hl.plugin.zones.move() end)
-hl.bind("SUPER + CTRL + ALT + S",  function() hl.plugin.zones.movesilent() end)
+local zones = {}
+
+-- The numbered workspace on the focused monitor, or nil.
+local function zone_owner()
+    local ws = hl.get_active_workspace()
+    return ws and ws.id or nil
+end
+
+function zones.toggle()
+    local id = zone_owner()
+    if id then hl.dispatch(hl.dsp.workspace.toggle_special(tostring(id))) end
+end
+
+function zones.move(follow)
+    local id = zone_owner()
+    if id then
+        hl.dispatch(hl.dsp.window.move({ workspace = "special:" .. id, follow = follow }))
+    end
+end
+
+hl.bind("SUPER + ALT + S",         function() zones.toggle() end)
+hl.bind("SUPER + ALT + SHIFT + S", function() zones.move(true) end)
+hl.bind("SUPER + CTRL + ALT + S",  function() zones.move(false) end)
+
+hl.config({ binds = { hide_special_on_workspace_change = true } })
 .fi
-.PP
-hypr-DE ships those Lua binds. Closures resolve at keypress time; if the
-plugin is missing, the press logs a Lua error instead of silently doing
-nothing.
 .TP
-.B hl.plugin.zones.toggle()
+.B zones.toggle()
 Show or hide this workspace's zone.
 .TP
-.B hl.plugin.zones.move()
+.B zones.move(true)
 Send the focused window to the zone and follow it.
 .TP
-.B hl.plugin.zones.movesilent()
+.B zones.move(false)
 Stash the focused window without following.
-.SH NAMED SCRATCHPAD
-The global scratchpad
-.I special:magic
-(hypr-DE:
-.B SUPER+S
-/
-.BR SUPER+0 )
-is built-in Hyprland, not this plugin. To dismiss
-.I named
-specials on workspace switches, set Hyprland's
+.PP
+A named workspace has no numeric id, so it owns no zone and the three
+functions do nothing there.
+.SH DISMISSAL
 .B binds:hide_special_on_workspace_change = true
-(no plugin needed). That is scoped to the target workspace's monitor: a
-special open on another monitor stays.
-.SH CONFIGURATION
-.TP
+is what closes a zone when its workspace is left. It is a built-in Hyprland
+option, scoped to the target workspace's monitor, so a special open on
+another monitor stays. It also covers switching to the workspace already
+underneath the special.
+.PP
+The option applies to every special workspace, so it closes a named
+scratchpad such as
+.I special:magic
+as well. Set it to false to keep zones and scratchpads open across
+workspace switches. The plugin's
 .B plugin:workspace-zones:auto_dismiss
-Default 1. Set to 0 to keep zones open across workspace switches.
+option no longer exists.
 .SH SEE ALSO
 .BR hypr-de (7),
 .BR hypr-de-help (1)
