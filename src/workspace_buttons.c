@@ -1,19 +1,3 @@
-/**
- * Waybar Workspace Buttons - CFFI Module for Hyprland
- *
- * Creates workspace buttons with:
- * - Active workspace highlighting
- * - Empty workspace hiding (configurable)
- * - Per-monitor filtering (configurable)
- * - Special workspace dot indicator (has-special class + visual dot)
- * - Click to switch workspace
- * - Real-time updates via Hyprland IPC socket
- *
- * Config options:
- *   all-outputs: bool (default: false) - Show workspaces from all monitors
- *   show-empty: bool (default: false) - Show empty workspaces
- */
-
 #include "waybar_cffi_module.h"
 #include <gtk-layer-shell/gtk-layer-shell.h>
 #include <gdk/gdkwayland.h>
@@ -37,27 +21,22 @@ typedef struct {
     GtkBox* container;
     GtkButton* buttons[NUM_WORKSPACES];
     GtkLabel* labels[NUM_WORKSPACES];
-    GtkLabel* dot_labels[NUM_WORKSPACES];  // Separate dot indicators
+    GtkLabel* dot_labels[NUM_WORKSPACES];
 
-    // Configuration
-    int all_outputs;      // Show workspaces from all monitors
-    int show_empty;       // Show empty workspaces
+    int all_outputs;
+    int show_empty;
 
-    // Tertiary color for dot indicator
     char tertiary_color[16];
 
-    // Monitor name for this waybar instance
     char monitor_name[64];
 
-    // State
-    int this_monitor_workspace;  // Workspace displayed on THIS module's monitor
-    int user_focused_here;       // Is user focused on THIS monitor?
-    int detect_retries;          // Retry counter for monitor detection
-    int workspace_windows[NUM_WORKSPACES];    // Window count per workspace
-    int special_windows[NUM_WORKSPACES];      // Window count per special:N
-    char workspace_monitor[NUM_WORKSPACES][64]; // Monitor name per workspace
+    int this_monitor_workspace;
+    int user_focused_here;
+    int detect_retries;
+    int workspace_windows[NUM_WORKSPACES];
+    int special_windows[NUM_WORKSPACES];
+    char workspace_monitor[NUM_WORKSPACES][64];
 
-    // Thread for IPC monitoring
     pthread_t ipc_thread;
     int thread_started;
     volatile int running;
@@ -66,7 +45,6 @@ typedef struct {
 
 const size_t wbcffi_version = 2;
 
-// Forward declarations
 static void update_button_states(WorkspaceModule* mod);
 static void* ipc_monitor_thread(void* arg);
 static void on_button_clicked(GtkButton* button, gpointer user_data);
@@ -78,7 +56,6 @@ static void refresh_window_counts(WorkspaceModule* mod);
 static void refresh_workspace_monitors(WorkspaceModule* mod);
 static void refresh_active_workspace(WorkspaceModule* mod);
 
-// Helper to run command and get string output
 static void popen_string(const char* cmd, char* output, size_t output_size) {
     FILE* fp = popen(cmd, "r");
     if (!fp) {
@@ -88,7 +65,6 @@ static void popen_string(const char* cmd, char* output, size_t output_size) {
     if (fgets(output, output_size, fp) == NULL) {
         output[0] = '\0';
     }
-    // Remove trailing newline
     size_t len = strlen(output);
     if (len > 0 && output[len-1] == '\n') {
         output[len-1] = '\0';
@@ -96,7 +72,6 @@ static void popen_string(const char* cmd, char* output, size_t output_size) {
     pclose(fp);
 }
 
-// Helper to run command and get integer output
 static int popen_int(const char* cmd) {
     FILE* fp = popen(cmd, "r");
     if (!fp) return 0;
@@ -109,7 +84,6 @@ static int popen_int(const char* cmd) {
     return result;
 }
 
-// Load tertiary color from `lmtt tokens`. Do not open theme files.
 static void load_tertiary_color(WorkspaceModule* mod) {
     strncpy(mod->tertiary_color, DEFAULT_TERTIARY_COLOR, sizeof(mod->tertiary_color));
 
@@ -129,7 +103,6 @@ static void load_tertiary_color(WorkspaceModule* mod) {
     pclose(fp);
 }
 
-// Start the IPC monitoring thread exactly once
 static void start_ipc_thread(WorkspaceModule* mod) {
     if (mod->thread_started) return;
     if (pthread_create(&mod->ipc_thread, NULL, ipc_monitor_thread, mod) == 0) {
@@ -139,26 +112,11 @@ static void start_ipc_thread(WorkspaceModule* mod) {
     }
 }
 
-// Monitor is known: load state, paint, and start listening for events
 static void finish_detection(WorkspaceModule* mod) {
     fetch_initial_state(mod);
     update_button_states(mod);
     start_ipc_thread(mod);
 }
-
-// ---- Output name via xdg-output ---------------------------------------------
-//
-// GTK 3 exposes no connector name for a GdkMonitor, and matching its logical
-// geometry against `hyprctl monitors` races the compositor: a freshly plugged
-// output reports (0,0) until xdg-output delivers its position, and Hyprland
-// re-arranges the layout when a monitor profile applies. Both settle after the
-// bar has mapped, so a snapshot taken on map can bind the bar to the wrong
-// output (2026-09-29: the DP-5 bar matched (0,0) to eDP-2).
-//
-// The connector name never moves. Create a private zxdg_output_v1 for the
-// GdkMonitor's wl_output on a private event queue and read its `name` event.
-// The private queue keeps GDK's own event stream untouched: the roundtrip
-// dispatches only ours.
 
 typedef struct {
     struct zxdg_output_manager_v1* manager;
@@ -168,7 +126,6 @@ typedef struct {
 static void probe_registry_global(void* data, struct wl_registry* registry, uint32_t id,
                                   const char* interface, uint32_t version) {
     OutputNameProbe* probe = data;
-    // `name` arrived in zxdg_output_v1 version 2; bind at most what we know (3)
     if (strcmp(interface, zxdg_output_manager_v1_interface.name) == 0 && version >= 2) {
         uint32_t bind_version = version < 3 ? version : 3;
         probe->manager = wl_registry_bind(registry, id, &zxdg_output_manager_v1_interface,
@@ -207,7 +164,6 @@ static void probe_xdg_output_description(void* data, struct zxdg_output_v1* outp
 static void probe_xdg_output_name(void* data, struct zxdg_output_v1* output, const char* name) {
     (void)output;
     OutputNameProbe* probe = data;
-    // The name is spliced into shell commands: keep only connector characters
     size_t n = 0;
     for (const char* r = name; *r && n < sizeof(probe->name) - 1; r++) {
         if (isalnum((unsigned char)*r) || *r == '-' || *r == '_') {
@@ -225,9 +181,6 @@ static const struct zxdg_output_v1_listener probe_xdg_output_listener = {
     .description = probe_xdg_output_description,
 };
 
-// Writes the xdg-output name of the GdkMonitor's wl_output into `out`, or ""
-// when the display is not Wayland or the compositor lacks xdg-output >= 2.
-// Runs on the GTK thread; blocks for two compositor roundtrips.
 static void resolve_output_name(GdkMonitor* monitor, char* out, size_t out_size) {
     out[0] = '\0';
 
@@ -240,8 +193,6 @@ static void resolve_output_name(GdkMonitor* monitor, char* out, size_t out_size)
     struct wl_event_queue* queue = wl_display_create_queue(display);
     if (!queue) return;
 
-    // A display wrapper on our queue makes the registry (and everything bound
-    // through it) deliver events to our queue instead of GDK's.
     struct wl_display* display_wrapper = wl_proxy_create_wrapper(display);
     if (!display_wrapper) {
         wl_event_queue_destroy(queue);
@@ -273,24 +224,13 @@ static void resolve_output_name(GdkMonitor* monitor, char* out, size_t out_size)
     snprintf(out, out_size, "%s", probe.name);
 }
 
-// Detect which monitor this waybar instance is on (called from idle so the
-// bar's toplevel exists). Waybar assigns every bar its output through
-// gtk_layer_set_monitor(); ask that GdkMonitor's wl_output for its xdg-output
-// name, which is the connector name Hyprland uses. Fall back to matching the
-// monitor's logical (x, y) against `hyprctl monitors`, then to the focused
-// monitor.
-//
-// Every resolution logs one `event=wsb.detect source=...` line so the journal
-// answers "which monitor did this bar bind to, and why".
 static gboolean detect_monitor_idle(gpointer user_data) {
     WorkspaceModule* mod = (WorkspaceModule*)user_data;
 
-    // "map" can re-fire (bar hidden/shown); detection already completed once
     if (mod->thread_started) {
         return G_SOURCE_REMOVE;
     }
 
-    // If monitor was set from config, use that
     if (mod->monitor_name[0] != '\0') {
         fprintf(stderr, "workspace_buttons: event=wsb.detect source=config monitor=%s\n",
                 mod->monitor_name);
@@ -299,8 +239,8 @@ static gboolean detect_monitor_idle(gpointer user_data) {
     }
 
     GtkWidget* toplevel = gtk_widget_get_toplevel(GTK_WIDGET(mod->container));
-    const char* source = NULL;   // which path produced monitor_name
-    const char* reason = NULL;   // why the preferred path did not
+    const char* source = NULL;
+    const char* reason = NULL;
     const char* model = "";
     char xdg_name[64] = "";
     GdkRectangle geom = {0, 0, 0, 0};
@@ -310,7 +250,6 @@ static gboolean detect_monitor_idle(gpointer user_data) {
     } else {
         GdkMonitor* monitor = gtk_layer_get_monitor(GTK_WINDOW(toplevel));
         if (!monitor) {
-            // A freshly hotplugged bar may not have its monitor assigned yet
             if (mod->detect_retries < 5) {
                 mod->detect_retries++;
                 fprintf(stderr, "workspace_buttons: event=wsb.detect.retry reason=no-gdk-monitor attempt=%d/5\n",
@@ -326,8 +265,6 @@ static gboolean detect_monitor_idle(gpointer user_data) {
 
             char cmd[256];
 
-            // Preferred: the connector name from xdg-output, confirmed against
-            // Hyprland so a name it does not know cannot leak into commands.
             resolve_output_name(monitor, xdg_name, sizeof(xdg_name));
             if (xdg_name[0] != '\0') {
                 snprintf(cmd, sizeof(cmd),
@@ -343,7 +280,6 @@ static gboolean detect_monitor_idle(gpointer user_data) {
                 reason = "no-xdg-output-name";
             }
 
-            // Second: logical (x, y). Races layout changes, see the 2026-09-29 ADR.
             if (!source) {
                 snprintf(cmd, sizeof(cmd),
                          "hyprctl monitors -j | jq -r '.[] | select(.x == %d and .y == %d) | .name' 2>/dev/null",
@@ -359,8 +295,6 @@ static gboolean detect_monitor_idle(gpointer user_data) {
     }
 
     if (!source) {
-        // Last: focused monitor. Loud, because the bar may now show the
-        // wrong output's workspaces.
         popen_string("hyprctl monitors -j | jq -r '.[] | select(.focused == true) | .name' 2>/dev/null",
                      mod->monitor_name, sizeof(mod->monitor_name));
         fprintf(stderr, "workspace_buttons: event=wsb.detect source=fallback-focused reason=%s xdg_name=\"%s\" gdk_x=%d gdk_y=%d monitor=%s\n",
@@ -377,16 +311,10 @@ static gboolean detect_monitor_idle(gpointer user_data) {
     return G_SOURCE_REMOVE;
 }
 
-// Callback to schedule monitor detection after widget is mapped (positioned)
 static void on_widget_map(GtkWidget* widget, gpointer user_data) {
-    // Use idle callback to ensure window positioning is complete
     g_idle_add(detect_monitor_idle, user_data);
 }
 
-// Re-derive THIS monitor's active workspace and focus state from hyprctl.
-// Single query so both fields come from one consistent snapshot; on failure
-// (empty output, e.g. transient hyprctl error or monitor gone) keep current
-// state rather than clobbering it.
 static void refresh_active_workspace(WorkspaceModule* mod) {
     char cmd[256];
 
@@ -403,44 +331,36 @@ static void refresh_active_workspace(WorkspaceModule* mod) {
     char focused[8];
     if (sscanf(line, "%d %7s", &ws, focused) != 2) return;
 
-    // Negative IDs (named workspaces) are valid and clear the 1-9 highlight
     mod->this_monitor_workspace = ws;
     mod->user_focused_here = (strcmp(focused, "true") == 0);
 }
 
-// Parse workspace state from hyprctl using jq
 static void fetch_initial_state(WorkspaceModule* mod) {
     char cmd[256];
 
-    // Get THIS monitor's active workspace and focus state
     if (mod->monitor_name[0] != '\0') {
         refresh_active_workspace(mod);
     } else {
-        // Fallback if monitor not yet detected
         mod->this_monitor_workspace = popen_int("hyprctl activeworkspace -j | jq -r '.id' 2>/dev/null");
         mod->user_focused_here = 1;
     }
 
-    // Reset state
     memset(mod->workspace_windows, 0, sizeof(mod->workspace_windows));
     memset(mod->special_windows, 0, sizeof(mod->special_windows));
     memset(mod->workspace_monitor, 0, sizeof(mod->workspace_monitor));
 
-    // Get workspace monitor assignments
     for (int i = 1; i <= NUM_WORKSPACES; i++) {
         snprintf(cmd, sizeof(cmd),
                  "hyprctl workspaces -j | jq -r '.[] | select(.id == %d) | .monitor' 2>/dev/null", i);
         popen_string(cmd, mod->workspace_monitor[i-1], sizeof(mod->workspace_monitor[i-1]));
     }
 
-    // Count windows per regular workspace (1-9)
     for (int i = 1; i <= NUM_WORKSPACES; i++) {
         snprintf(cmd, sizeof(cmd),
                  "hyprctl clients -j | jq '[.[] | select(.workspace.id == %d)] | length' 2>/dev/null", i);
         mod->workspace_windows[i - 1] = popen_int(cmd);
     }
 
-    // Count windows per special workspace (special:1 through special:9)
     for (int i = 1; i <= NUM_WORKSPACES; i++) {
         snprintf(cmd, sizeof(cmd),
                  "hyprctl clients -j | jq '[.[] | select(.workspace.name == \"special:%d\")] | length' 2>/dev/null", i);
@@ -448,17 +368,13 @@ static void fetch_initial_state(WorkspaceModule* mod) {
     }
 }
 
-// Batched refresh: update all window counts with single hyprctl call
 static void refresh_window_counts(WorkspaceModule* mod) {
-    // Reset counts
     memset(mod->workspace_windows, 0, sizeof(mod->workspace_windows));
     memset(mod->special_windows, 0, sizeof(mod->special_windows));
 
-    // Single hyprctl call - read all client data at once
     FILE* fp = popen("hyprctl clients -j 2>/dev/null", "r");
     if (!fp) return;
 
-    // Read entire output
     char buffer[32768];
     size_t total = 0;
     size_t bytes;
@@ -469,28 +385,23 @@ static void refresh_window_counts(WorkspaceModule* mod) {
     buffer[total] = '\0';
     pclose(fp);
 
-    // Parse workspace IDs from JSON - look for "workspace":{"id":N patterns
-    // This is a simple parser that counts occurrences
     const char* ptr = buffer;
     while ((ptr = strstr(ptr, "\"workspace\"")) != NULL) {
-        // Look for "id": followed by a number
         const char* id_ptr = strstr(ptr, "\"id\":");
         const char* name_ptr = strstr(ptr, "\"name\":");
 
         if (id_ptr && (name_ptr == NULL || id_ptr < name_ptr)) {
-            id_ptr += 5; // skip "id":
+            id_ptr += 5;
             while (*id_ptr == ' ') id_ptr++;
             int ws_id = atoi(id_ptr);
 
-            // Regular workspace (1-9)
             if (ws_id >= 1 && ws_id <= NUM_WORKSPACES) {
                 mod->workspace_windows[ws_id - 1]++;
             }
         }
 
-        // Check for special workspace by name
         if (name_ptr) {
-            name_ptr += 7; // skip "name":
+            name_ptr += 7;
             while (*name_ptr == ' ' || *name_ptr == '"') name_ptr++;
             if (strncmp(name_ptr, "special:", 8) == 0) {
                 int special_id = atoi(name_ptr + 8);
@@ -504,7 +415,6 @@ static void refresh_window_counts(WorkspaceModule* mod) {
     }
 }
 
-// Batched refresh: update workspace-to-monitor mapping
 static void refresh_workspace_monitors(WorkspaceModule* mod) {
     memset(mod->workspace_monitor, 0, sizeof(mod->workspace_monitor));
 
@@ -521,13 +431,11 @@ static void refresh_workspace_monitors(WorkspaceModule* mod) {
     buffer[total] = '\0';
     pclose(fp);
 
-    // Parse workspace entries - look for "id":N and "monitor":"NAME" pairs
     const char* ptr = buffer;
     while ((ptr = strstr(ptr, "\"id\":")) != NULL) {
         ptr += 5;
         int ws_id = atoi(ptr);
 
-        // Find associated monitor
         const char* mon_ptr = strstr(ptr, "\"monitor\":");
         const char* next_id = strstr(ptr, "\"id\":");
 
@@ -547,32 +455,25 @@ static void refresh_workspace_monitors(WorkspaceModule* mod) {
     }
 }
 
-// Handle a single event from Hyprland socket (fast, no subprocess spawning)
 static void handle_event(WorkspaceModule* mod, const char* event) {
-    // Skip events until monitor is detected
     if (mod->monitor_name[0] == '\0') {
         return;
     }
 
-    // workspace>>N - switched to workspace N (global event, no monitor context)
     if (strncmp(event, "workspace>>", 11) == 0) {
         int ws = atoi(event + 11);
         if (ws >= 1 && ws <= NUM_WORKSPACES) {
-            // Only update if this workspace is on THIS monitor
             const char* ws_monitor = mod->workspace_monitor[ws - 1];
             if (ws_monitor[0] != '\0' && strcmp(ws_monitor, mod->monitor_name) == 0) {
                 mod->this_monitor_workspace = ws;
             }
-            // Don't set user_focused_here - let focusedmon>> handle that
         }
         return;
     }
 
-    // focusedmon>>MONITOR,WORKSPACE - focus changed to different monitor
     if (strncmp(event, "focusedmon>>", 12) == 0) {
         char mon[64];
         int ws;
-        // Parse "DP-4,2" format
         const char* comma = strchr(event + 12, ',');
         if (comma) {
             size_t mon_len = comma - (event + 12);
@@ -581,10 +482,8 @@ static void handle_event(WorkspaceModule* mod, const char* event) {
                 mon[mon_len] = '\0';
                 ws = atoi(comma + 1);
 
-                // Update focus state for this module
                 mod->user_focused_here = (strcmp(mon, mod->monitor_name) == 0);
 
-                // If focus moved TO this monitor, update active workspace
                 if (mod->user_focused_here && ws >= 1 && ws <= NUM_WORKSPACES) {
                     mod->this_monitor_workspace = ws;
                 }
@@ -593,14 +492,11 @@ static void handle_event(WorkspaceModule* mod, const char* event) {
         return;
     }
 
-    // activespecial>>special:N,MONITOR or activespecial>>,MONITOR (closed)
     if (strncmp(event, "activespecial>>", 15) == 0) {
-        // Special workspace state changed - refresh window counts to update dots
         refresh_window_counts(mod);
         return;
     }
 
-    // Window events - need to refresh counts
     if (strncmp(event, "openwindow>>", 12) == 0 ||
         strncmp(event, "closewindow>>", 13) == 0 ||
         strncmp(event, "movewindow>>", 12) == 0) {
@@ -608,17 +504,12 @@ static void handle_event(WorkspaceModule* mod, const char* event) {
         return;
     }
 
-    // Workspace created/destroyed - refresh monitor assignments
     if (strncmp(event, "createworkspace>>", 17) == 0 ||
         strncmp(event, "destroyworkspace>>", 18) == 0) {
         refresh_workspace_monitors(mod);
         return;
     }
 
-    // Workspace moved to another monitor - refresh assignments AND this
-    // monitor's active workspace. A moved workspace becomes active on its
-    // destination (and the source falls back to another workspace) without
-    // emitting workspace>>/focusedmon>>, so re-derive from hyprctl here.
     if (strncmp(event, "moveworkspace>>", 15) == 0) {
         refresh_workspace_monitors(mod);
         refresh_active_workspace(mod);
@@ -626,7 +517,6 @@ static void handle_event(WorkspaceModule* mod, const char* event) {
     }
 }
 
-// Check if a workspace should be visible based on config
 static int should_show_workspace(WorkspaceModule* mod, int ws_index) {
     int ws_num = ws_index + 1;
     int is_this_monitor_ws = (ws_num == mod->this_monitor_workspace);
@@ -637,19 +527,15 @@ static int should_show_workspace(WorkspaceModule* mod, int ws_index) {
                            strcmp(mod->workspace_monitor[ws_index], mod->monitor_name) == 0 ||
                            mod->workspace_monitor[ws_index][0] == '\0');
 
-    // Always show this monitor's active workspace
     if (is_this_monitor_ws) return 1;
 
-    // Check monitor filter
     if (!on_this_monitor) return 0;
 
-    // Check empty filter - special windows count as "not empty"
     if (!mod->show_empty && !has_windows && !has_special) return 0;
 
     return 1;
 }
 
-// Update CSS classes and button visibility (must be called from GTK main thread)
 static gboolean update_ui_callback(gpointer user_data) {
     WorkspaceModule* mod = (WorkspaceModule*)user_data;
     update_button_states(mod);
@@ -660,25 +546,20 @@ static void update_button_states(WorkspaceModule* mod) {
     for (int i = 0; i < NUM_WORKSPACES; i++) {
         GtkStyleContext* ctx = gtk_widget_get_style_context(GTK_WIDGET(mod->buttons[i]));
 
-        // Check visibility
         int should_show = should_show_workspace(mod, i);
         gtk_widget_set_visible(GTK_WIDGET(mod->buttons[i]), should_show);
 
         if (!should_show) continue;
 
-        // Remove all our classes first
         gtk_style_context_remove_class(ctx, "active");
         gtk_style_context_remove_class(ctx, "visible");
         gtk_style_context_remove_class(ctx, "empty");
         gtk_style_context_remove_class(ctx, "has-special");
 
-        // Apply active/visible classes based on per-monitor state
         if ((i + 1) == mod->this_monitor_workspace) {
             if (mod->user_focused_here) {
-                // User is focused on this monitor - full active styling with underline
                 gtk_style_context_add_class(ctx, "active");
             } else {
-                // Workspace shown on this monitor but user focused elsewhere - highlight only
                 gtk_style_context_add_class(ctx, "visible");
             }
         }
@@ -691,7 +572,6 @@ static void update_button_states(WorkspaceModule* mod) {
             gtk_style_context_add_class(ctx, "has-special");
         }
 
-        // Show/hide dot indicator (separate overlay, doesn't affect centering)
         if (mod->special_windows[i] > 0) {
             gtk_widget_show(GTK_WIDGET(mod->dot_labels[i]));
         } else {
@@ -700,9 +580,6 @@ static void update_button_states(WorkspaceModule* mod) {
     }
 }
 
-// Button click handler - switch to workspace. Hyprland 0.56+ is Lua-config
-// only: dispatch arguments are Lua expressions (the classic string form no
-// longer exists), so there is no dialect to detect.
 static void on_button_clicked(GtkButton* button, gpointer user_data) {
     int workspace = GPOINTER_TO_INT(user_data);
     char cmd[128];
@@ -710,7 +587,6 @@ static void on_button_clicked(GtkButton* button, gpointer user_data) {
     system(cmd);
 }
 
-// Connect to Hyprland's event socket
 static int connect_hyprland_socket(void) {
     const char* xdg_runtime = getenv("XDG_RUNTIME_DIR");
     const char* hypr_sig = getenv("HYPRLAND_INSTANCE_SIGNATURE");
@@ -743,19 +619,17 @@ static int connect_hyprland_socket(void) {
     return fd;
 }
 
-// IPC monitoring thread
 static void* ipc_monitor_thread(void* arg) {
     WorkspaceModule* mod = (WorkspaceModule*)arg;
     char buffer[4096];
-    size_t pending = 0;   // Bytes of a partial line carried over from the last read
-    int discarding = 0;   // Skipping the remainder of an overlong dropped line
+    size_t pending = 0;
+    int discarding = 0;
 
     mod->socket_fd = connect_hyprland_socket();
     if (mod->socket_fd < 0) {
         fprintf(stderr, "workspace_buttons: Failed to connect to Hyprland socket\n");
         return NULL;
     }
-    // Deinit may have run while we were connecting; don't block in read()
     if (!mod->running) {
         close(mod->socket_fd);
         return NULL;
@@ -765,7 +639,6 @@ static void* ipc_monitor_thread(void* arg) {
         ssize_t bytes = read(mod->socket_fd, buffer + pending, sizeof(buffer) - pending - 1);
         if (bytes <= 0) {
             if (mod->running) {
-                // Try to reconnect
                 close(mod->socket_fd);
                 sleep(1);
                 mod->socket_fd = connect_hyprland_socket();
@@ -778,15 +651,10 @@ static void* ipc_monitor_thread(void* arg) {
         pending += (size_t)bytes;
         buffer[pending] = '\0';
 
-        // Parse complete events only (newline-terminated); a read() can split
-        // an event across buffers, so carry any trailing partial line over.
-        // Fast path: parse events directly without spawning processes
         char* line = buffer;
         char* next;
         int needs_update = 0;
 
-        // Skip the remainder of a previously dropped overlong line - its tail
-        // must not be parsed as if it started a fresh event
         if (discarding) {
             next = strchr(line, '\n');
             if (!next) {
@@ -800,9 +668,7 @@ static void* ipc_monitor_thread(void* arg) {
         while ((next = strchr(line, '\n')) != NULL) {
             *next = '\0';
 
-            // Skip empty lines
             if (*line) {
-                // Handle event - updates state directly where possible
                 handle_event(mod, line);
                 needs_update = 1;
             }
@@ -810,17 +676,14 @@ static void* ipc_monitor_thread(void* arg) {
             line = next + 1;
         }
 
-        // Carry the partial line (if any) to the front of the buffer
         pending = strlen(line);
         if (pending >= sizeof(buffer) - 1) {
-            // Line longer than the buffer - drop it and skip its remainder
             pending = 0;
             discarding = 1;
         } else if (pending > 0 && line != buffer) {
             memmove(buffer, line, pending);
         }
 
-        // Queue single UI update for all events in this batch
         if (needs_update) {
             g_idle_add(update_ui_callback, mod);
         }
@@ -830,13 +693,10 @@ static void* ipc_monitor_thread(void* arg) {
     return NULL;
 }
 
-// Parse boolean config value from JSON string
 static int parse_bool(const char* value) {
     if (!value) return 0;
-    // JSON booleans are "true" or "false"
     if (strcmp(value, "true") == 0) return 1;
     if (strcmp(value, "false") == 0) return 0;
-    // Also accept "1" / "0"
     return atoi(value) != 0;
 }
 
@@ -850,18 +710,15 @@ void* wbcffi_init(const wbcffi_init_info* init_info, const wbcffi_config_entry* 
     mod->this_monitor_workspace = 1;
     mod->user_focused_here = 1;
 
-    // Default config values
-    mod->all_outputs = 0;  // Only show workspaces on this monitor
-    mod->show_empty = 0;   // Hide empty workspaces
+    mod->all_outputs = 0;
+    mod->show_empty = 0;
 
-    // Parse config entries
     for (size_t i = 0; i < config_entries_len; i++) {
         if (strcmp(config_entries[i].key, "all-outputs") == 0) {
             mod->all_outputs = parse_bool(config_entries[i].value);
         } else if (strcmp(config_entries[i].key, "show-empty") == 0) {
             mod->show_empty = parse_bool(config_entries[i].value);
         } else if (strcmp(config_entries[i].key, "output") == 0) {
-            // Allow manual override of output name
             const char* val = config_entries[i].value;
             if (val[0] == '"') val++;
             strncpy(mod->monitor_name, val, sizeof(mod->monitor_name) - 1);
@@ -869,8 +726,6 @@ void* wbcffi_init(const wbcffi_init_info* init_info, const wbcffi_config_entry* 
             if (len > 0 && mod->monitor_name[len-1] == '"') {
                 mod->monitor_name[len-1] = '\0';
             }
-            // The name is spliced into shell commands - keep only characters
-            // valid in connector names
             char* w = mod->monitor_name;
             for (const char* r = mod->monitor_name; *r; r++) {
                 if (isalnum((unsigned char)*r) || *r == '-' || *r == '_') {
@@ -884,35 +739,28 @@ void* wbcffi_init(const wbcffi_init_info* init_info, const wbcffi_config_entry* 
     fprintf(stderr, "workspace_buttons: Config - all-outputs=%d, show-empty=%d\n",
             mod->all_outputs, mod->show_empty);
 
-    // Load theme color
     load_tertiary_color(mod);
 
     GtkContainer* root = init_info->get_root_widget(init_info->obj);
 
-    // Create horizontal box container
     mod->container = GTK_BOX(gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0));
     gtk_widget_set_name(GTK_WIDGET(mod->container), "workspaces");
     gtk_container_add(root, GTK_WIDGET(mod->container));
 
-    // Connect map signal to detect monitor (fires after widget is positioned)
     g_signal_connect(mod->container, "map", G_CALLBACK(on_widget_map), mod);
 
-    // Create 9 workspace buttons
     for (int i = 0; i < NUM_WORKSPACES; i++) {
         char label[8];
         snprintf(label, sizeof(label), "%d", i + 1);
 
-        // Create button with overlay structure for proper dot positioning
         mod->buttons[i] = GTK_BUTTON(gtk_button_new());
         GtkOverlay* overlay = GTK_OVERLAY(gtk_overlay_new());
 
-        // Main label (centered number)
         mod->labels[i] = GTK_LABEL(gtk_label_new(label));
         gtk_widget_set_halign(GTK_WIDGET(mod->labels[i]), GTK_ALIGN_CENTER);
         gtk_widget_set_valign(GTK_WIDGET(mod->labels[i]), GTK_ALIGN_CENTER);
         gtk_container_add(GTK_CONTAINER(overlay), GTK_WIDGET(mod->labels[i]));
 
-        // Dot indicator (positioned top-right, initially hidden)
         char dot_markup[64];
         snprintf(dot_markup, sizeof(dot_markup),
                  "<span font_size='5000' color='%s'>●</span>", mod->tertiary_color);
@@ -936,8 +784,6 @@ void* wbcffi_init(const wbcffi_init_info* init_info, const wbcffi_config_entry* 
 
     gtk_widget_show_all(GTK_WIDGET(mod->container));
 
-    // Note: IPC thread starts in detect_monitor_idle() after monitor is detected
-
     fprintf(stderr, "workspace_buttons: Initialized (tertiary=%s)\n", mod->tertiary_color);
     return mod;
 }
@@ -953,7 +799,6 @@ void wbcffi_deinit(void* instance) {
         pthread_join(mod->ipc_thread, NULL);
     }
 
-    // Drop any pending idle/timeout sources that still reference mod
     while (g_source_remove_by_user_data(mod)) { }
 
     free(mod);
@@ -961,17 +806,14 @@ void wbcffi_deinit(void* instance) {
 }
 
 void wbcffi_update(void* instance) {
-    // Called from GTK main loop - we handle updates via IPC thread
 }
 
 void wbcffi_refresh(void* instance, int signal) {
     WorkspaceModule* mod = (WorkspaceModule*)instance;
-    // Reload color on signal (in case theme changed)
     load_tertiary_color(mod);
     fetch_initial_state(mod);
     update_button_states(mod);
 }
 
 void wbcffi_doaction(void* instance, const char* action_name) {
-    // Could add custom actions here
 }

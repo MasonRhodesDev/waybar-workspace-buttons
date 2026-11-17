@@ -231,8 +231,6 @@ too.
 scratchpad.
 
 Until 1.5.0 zones came from a compiled Hyprland plugin in this repo.
-[ADR 2026-11-10](docs/decisions/2026-11-10-zones-in-lua-not-a-plugin.md)
-records why it was retired.
 
 ## Hyprland Events Handled
 

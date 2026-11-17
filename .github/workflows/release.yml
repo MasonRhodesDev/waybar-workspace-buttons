@@ -13,7 +13,6 @@ jobs:
     secrets: inherit
     with:
       spec-name: waybar-workspace-buttons
-      # Build-target set: mirrors nett00n/hyprland, the compositor's COPR.
       copr-chroots: >-
         fedora-43-x86_64 fedora-44-x86_64 fedora-45-x86_64 fedora-rawhide-x86_64
         fedora-43-aarch64 fedora-44-aarch64 fedora-45-aarch64 fedora-rawhide-aarch64

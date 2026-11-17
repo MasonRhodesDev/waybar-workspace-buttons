@@ -1,17 +1,4 @@
 #!/bin/bash
-# Build the SRPM (source tarball from a git tag) and optionally submit it to
-# COPR. Fedora ships the Waybar CFFI module and workspace-zones(7).
-#
-# Release flow (Fedora + Arch from the same tag):
-#   1. Bump root meson.build version + spec Version (+ %changelog) + PKGBUILD
-#      pkgver — one commit.
-#   2. git tag vX.Y.Z && git push --tags
-#   3. ./packaging/build-srpm.sh [--copr]        # Fedora
-#   4. cd packaging && updpkgsums && makepkg     # Arch (or let the shared
-#      packaging-workflows CI release it)
-#
-# --head builds from HEAD instead of the tag (local testing only — never
-# submit a --head build).
 set -euo pipefail
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
@@ -50,8 +37,6 @@ git -C "$REPO" archive --format=tar.gz --prefix="$NAME-$VER/" \
 echo "==> building SRPM"
 SRPM=$(rpmbuild -bs "$SPEC" | sed -n 's/^Wrote: //p')
 echo "    $SRPM"
-# Gating: a clean tree should pass (domain-term/spelling noise filtered by the
-# rpmlintrc). Failures here are real spec defects worth stopping for.
 rpmlint --rpmlintrc "$REPO/packaging/$NAME.rpmlintrc" "$SRPM"
 
 if [ "${1:-}" = "--copr" ]; then
