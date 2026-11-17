@@ -5,8 +5,6 @@ project(
     default_options: ['c_std=gnu11']
 )
 
-# xdg-output: the module reads each bar's connector name straight from the
-# compositor (see docs/decisions/2026-09-29-resolve-output-name-via-xdg-output.md).
 wayland_client = dependency('wayland-client', version: '>=1.15')
 wayland_protocols = dependency('wayland-protocols', version: '>=1.14')
 wayland_scanner = find_program('wayland-scanner', native: true)

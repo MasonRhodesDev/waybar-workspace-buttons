@@ -1,8 +1,4 @@
 # Maintainer: Mason Rhodes <mrhodesdev@gmail.com>
-#
-# The Waybar CFFI module. The workspace-zones compositor plugin was a split
-# package here until 1.5.0. Zones are Lua in the Hyprland config now, so this
-# package replaces both plugin packages and nothing pins hyprland.
 pkgname=waybar-workspace-buttons
 pkgver=1.5.0
 pkgrel=1

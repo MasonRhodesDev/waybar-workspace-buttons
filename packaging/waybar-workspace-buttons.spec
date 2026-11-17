@@ -1,11 +1,3 @@
-# RPM spec for waybar-workspace-buttons. Built in COPR from a local SRPM
-# produced by packaging/build-srpm.sh (source tarball from the git tag).
-#
-# Ships the Waybar CFFI module and the workspace-zones(7) man page. The
-# workspace-zones compositor plugin was retired in 1.5.0 because zones are
-# Lua in the Hyprland config now (docs/decisions has the record). Nothing
-# here is built against the compositor and nothing pins its version.
-
 Name:           waybar-workspace-buttons
 Version:        1.5.0
 Release:        1%{?dist}
@@ -19,14 +11,11 @@ BuildRequires:  gcc
 BuildRequires:  gcc-c++
 BuildRequires:  pkgconfig(gtk+-3.0)
 BuildRequires:  pkgconfig(gtk-layer-shell-0)
-# xdg-output name resolution (protocol code generated at build time)
 BuildRequires:  pkgconfig(wayland-client)
 BuildRequires:  pkgconfig(wayland-protocols) >= 1.14
 BuildRequires:  pkgconfig(wayland-scanner)
 Requires:       waybar
 Requires:       jq
-# The retired plugin package pinned `hyprland = <exact version>`. Obsolete it
-# so an upgrade removes it and the pin stops holding hyprland back.
 Obsoletes:      hyprland-workspace-zones < 1.5.0
 
 %description

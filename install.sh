@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-# Idempotent installer for the waybar-workspace-buttons CFFI module.
-# - Builds workspace_buttons.so (meson/ninja) if needed
-# - Installs it to ~/.config/waybar/cffi/
-#
-# Workspace zones need nothing installed: they are Lua in the Hyprland
-# config (see README, "Per-workspace special zones").
 set -euo pipefail
 
 SRC="$(cd "$(dirname "$0")" && pwd)"
